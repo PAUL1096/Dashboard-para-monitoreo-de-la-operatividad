@@ -1,0 +1,18 @@
+# Dependencias del Dashboard Meteorológico SGR
+# Versión: 2.1
+
+# Framework principal
+streamlit>=1.28.0
+
+# Manipulación de datos
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Visualización
+plotly>=5.17.0
+
+# Lectura de Excel
+openpyxl>=3.1.0
+
+# Utilidades
+python-dateutil>=2.8.0
