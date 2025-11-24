@@ -93,27 +93,30 @@ class StyleConfig:
     """
     
     CSS_PRIORITY_ALTA: str = """
-        background-color: #ffe6e6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 5px solid #d62728;
-        margin: 0.5rem 0;
+        background: linear-gradient(135deg, #ffe6e6 0%, #fff0f0 100%);
+        padding: 0.8rem 1rem;
+        border-radius: 0.6rem;
+        border-left: 4px solid #d62728;
+        box-shadow: 0 2px 4px rgba(214, 39, 40, 0.1);
+        transition: transform 0.2s;
     """
-    
+
     CSS_PRIORITY_MEDIA: str = """
-        background-color: #fff4e6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 5px solid #ff7f0e;
-        margin: 0.5rem 0;
+        background: linear-gradient(135deg, #fff4e6 0%, #fff9f0 100%);
+        padding: 0.8rem 1rem;
+        border-radius: 0.6rem;
+        border-left: 4px solid #ff7f0e;
+        box-shadow: 0 2px 4px rgba(255, 127, 14, 0.1);
+        transition: transform 0.2s;
     """
-    
+
     CSS_PRIORITY_BAJA: str = """
-        background-color: #f0f0f0;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 5px solid #7f7f7f;
-        margin: 0.5rem 0;
+        background: linear-gradient(135deg, #f5f5f5 0%, #fafafa 100%);
+        padding: 0.8rem 1rem;
+        border-radius: 0.6rem;
+        border-left: 4px solid #9e9e9e;
+        box-shadow: 0 2px 4px rgba(127, 127, 127, 0.1);
+        transition: transform 0.2s;
     """
     
     CSS_FOOTER: str = """
@@ -137,6 +140,37 @@ class StyleConfig:
         }}
         .prioridad-baja {{
             {self.CSS_PRIORITY_BAJA}
+        }}
+        .prioridad-alta:hover, .prioridad-media:hover, .prioridad-baja:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }}
+        .prioridad-title {{
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin: 0;
+            margin-bottom: 0.3rem;
+            color: #333;
+        }}
+        .prioridad-number {{
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin: 0.2rem 0;
+            line-height: 1;
+        }}
+        .prioridad-desc {{
+            font-size: 0.85rem;
+            color: #666;
+            margin: 0.3rem 0 0 0;
+            line-height: 1.3;
+        }}
+        .prioridad-detail {{
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 0.4rem;
+            padding-top: 0.4rem;
+            border-top: 1px solid rgba(0,0,0,0.08);
+            font-style: italic;
         }}
         .footer {{
             {self.CSS_FOOTER}
