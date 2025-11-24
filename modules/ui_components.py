@@ -39,64 +39,81 @@ class UIComponents:
     def mostrar_seccion_alertas(self, df_estaciones: pd.DataFrame):
         """
         Muestra sección de alertas y prioridades
-        
+
         Args:
             df_estaciones: DataFrame procesado de estaciones
         """
         st.header("🚨 Alertas y Prioridades")
-        
+
         prioridades = df_estaciones['prioridad'].value_counts()
-        
+
         col1, col2, col3 = st.columns(3)
-        
+
         with col1:
             alta_count = prioridades.get('ALTA', 0)
             st.markdown(f"""
             <div class="prioridad-alta">
-                <h3>🔴 PRIORIDAD ALTA</h3>
-                <h1>{alta_count}</h1>
-                <p>Requieren atención inmediata</p>
+                <p class="prioridad-title">🔴 PRIORIDAD ALTA</p>
+                <p class="prioridad-number">{alta_count}</p>
+                <p class="prioridad-desc">Requieren atención inmediata</p>
+                <p class="prioridad-detail">Nuevas (≤30 días) o críticas sin resolver</p>
             </div>
             """, unsafe_allow_html=True)
-        
+
         with col2:
             media_count = prioridades.get('MEDIA', 0)
             st.markdown(f"""
             <div class="prioridad-media">
-                <h3>🟡 PRIORIDAD MEDIA</h3>
-                <h1>{media_count}</h1>
-                <p>En monitoreo o recurrentes</p>
+                <p class="prioridad-title">🟡 PRIORIDAD MEDIA</p>
+                <p class="prioridad-number">{media_count}</p>
+                <p class="prioridad-desc">En monitoreo o recurrentes</p>
+                <p class="prioridad-detail">Requieren seguimiento técnico continuo</p>
             </div>
             """, unsafe_allow_html=True)
-        
+
         with col3:
             baja_count = prioridades.get('BAJA', 0)
             st.markdown(f"""
             <div class="prioridad-baja">
-                <h3>⚪ INFORMATIVO</h3>
-                <h1>{baja_count}</h1>
-                <p>Paralizadas (>30 días)</p>
+                <p class="prioridad-title">⚪ INFORMATIVO</p>
+                <p class="prioridad-number">{baja_count}</p>
+                <p class="prioridad-desc">Paralizadas (>30 días)</p>
+                <p class="prioridad-detail">Incidencias de largo plazo o estables</p>
             </div>
             """, unsafe_allow_html=True)
-        
+
         # Mostrar tabla de prioridad alta si hay
         if alta_count > 0:
+            st.markdown("")  # Espacio
             st.subheader("📋 Estaciones de Prioridad Alta - Acción Requerida")
+
             df_alta = df_estaciones[df_estaciones['prioridad'] == 'ALTA'].sort_values(
                 'dias_desde_inci', ascending=False
             )
-            
+
             cols_mostrar = [
-                'DZ', 'Estacion', 'disponibilidad', 'var_disp', 
-                'estado_inci', 'dias_desde_inci', 'f_inci', 'comentario'
+                'DZ', 'Estacion', 'disponibilidad', 'var_disp',
+                'estado_inci', 'dias_desde_inci', 'f_inci'
             ]
             cols_disponibles = [col for col in cols_mostrar if col in df_alta.columns]
-            
+
+            # Tabla más compacta con mejor altura
             st.dataframe(
-                df_alta[cols_disponibles], 
-                use_container_width=True, 
-                height=300
+                df_alta[cols_disponibles],
+                use_container_width=True,
+                height=min(250, 50 + len(df_alta) * 35)  # Altura dinámica pero limitada
             )
+
+            # Mostrar expandible con comentarios si existen
+            if 'comentario' in df_alta.columns:
+                with st.expander("📝 Ver comentarios técnicos detallados"):
+                    for idx, row in df_alta.iterrows():
+                        if pd.notna(row.get('comentario', '')):
+                            st.markdown(f"""
+                            **{row['Estacion']}** ({row['DZ']}) - *{row['estado_inci']}*
+                            → {row['comentario']}
+                            """)
+                            st.markdown("---")
     
     # ========================================================================
     # SECCIÓN: MÉTRICAS GLOBALES
