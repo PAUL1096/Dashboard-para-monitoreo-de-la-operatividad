@@ -40,8 +40,10 @@ class AppConfig:
     THRESHOLD_ANOMALY: float = 100.0  # Sobre este valor es anomalía
     
     # Clasificación de prioridades (días)
-    PRIORITY_HIGH_MAX_DAYS: int = 30  # <= 30 días = ALTA
+    PRIORITY_HIGH_MAX_DAYS: int = 30  # <= 30 días = ALTA (Nueva)
     PRIORITY_MEDIUM_MONITOR_DAYS: int = 5  # Monitoreo post-solución
+    PRIORITY_PARALIZADA_MIN_DAYS: int = 90  # >= 90 días (3 meses) + disp=0% = BAJA (Paralizada)
+    PRIORITY_CLAUSURA_MIN_DAYS: int = 730  # >= 730 días (2 años) = Candidata a clausura
     
     # Formatos de fecha
     DATE_FORMAT: str = "%d/%m/%Y"  # Formato en Excel

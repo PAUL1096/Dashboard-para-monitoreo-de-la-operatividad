@@ -84,23 +84,61 @@ class ExcelFileHandler:
             return None, None, None
     
     @staticmethod
+    def normalizar_nombres_columnas(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Normaliza nombres de columnas para ser case-insensitive
+
+        Args:
+            df: DataFrame con columnas a normalizar
+
+        Returns:
+            DataFrame con columnas normalizadas
+        """
+        # Mapeo de nombres comunes (minúsculas -> forma correcta)
+        mapeo_columnas = {
+            'comentario': 'Comentario',
+            'estacion': 'Estacion',
+            'sensor': 'Sensor',
+            'frecuencia': 'Frecuencia',
+            'dz': 'DZ'
+        }
+
+        # Renombrar columnas encontradas
+        columnas_nuevas = {}
+        for col in df.columns:
+            col_lower = col.lower()
+            if col_lower in mapeo_columnas:
+                columnas_nuevas[col] = mapeo_columnas[col_lower]
+
+        if columnas_nuevas:
+            df = df.rename(columns=columnas_nuevas)
+
+        return df
+
+    @staticmethod
     def validar_columnas(df: pd.DataFrame, columnas_requeridas: List[str], nombre_hoja: str) -> None:
         """
-        Valida que el DataFrame contenga todas las columnas requeridas
-        
+        Valida que el DataFrame contenga todas las columnas requeridas (case-insensitive)
+
         Args:
             df: DataFrame a validar
             columnas_requeridas: Lista de nombres de columnas que deben existir
             nombre_hoja: Nombre de la hoja (para mensaje de error)
-            
+
         Raises:
             FileValidationError: Si faltan columnas requeridas
         """
-        columnas_faltantes = set(columnas_requeridas) - set(df.columns)
-        
+        # Comparación case-insensitive
+        columnas_df_lower = {col.lower(): col for col in df.columns}
+        columnas_req_lower = {col.lower(): col for col in columnas_requeridas}
+
+        columnas_faltantes = set(columnas_req_lower.keys()) - set(columnas_df_lower.keys())
+
         if columnas_faltantes:
+            # Mostrar nombres originales requeridos
+            nombres_faltantes = [columnas_req_lower[col] for col in columnas_faltantes]
             error_msg = (
-                f"Hoja '{nombre_hoja}' - Columnas faltantes: {', '.join(columnas_faltantes)}\n"
+                f"Hoja '{nombre_hoja}' - Columnas faltantes: {', '.join(nombres_faltantes)}\n"
                 f"Columnas encontradas: {', '.join(df.columns)}"
             )
             raise FileValidationError(error_msg)
@@ -175,8 +213,13 @@ class ExcelFileHandler:
             df_estaciones = pd.read_excel(archivo_path, sheet_name=config.SHEET_ESTACIONES)
             df_sensores = pd.read_excel(archivo_path, sheet_name=config.SHEET_SENSORES)
             df_variables = pd.read_excel(archivo_path, sheet_name=config.SHEET_VARIABLES)
-            
-            # Validar columnas de cada hoja
+
+            # Normalizar nombres de columnas (comentario -> Comentario, etc.)
+            df_estaciones = _cls.normalizar_nombres_columnas(df_estaciones)
+            df_sensores = _cls.normalizar_nombres_columnas(df_sensores)
+            df_variables = _cls.normalizar_nombres_columnas(df_variables)
+
+            # Validar columnas de cada hoja (ahora case-insensitive)
             _cls.validar_columnas(
                 df_estaciones,
                 config.REQUIRED_COLUMNS[config.SHEET_ESTACIONES],
