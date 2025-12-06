@@ -93,9 +93,9 @@ class DataProcessor:
         Clasifica prioridad de atención según estado y días de incidencia
 
         Reglas de clasificación (actualizadas Nov 2025):
+        - BAJA: Paralizadas (≥90 días + disponibilidad ≤ 0.5%) - MÁXIMA PRIORIDAD
         - ALTA: Incidencias nuevas (≤30 días) con disponibilidad crítica
         - MEDIA: Recurrentes (>30 días) o Solucionadas en monitoreo (≤5 días)
-        - BAJA: Paralizadas (≥90 días + disponibilidad = 0%)
         - N/A: Sin incidencias o disponibilidad >= umbral
 
         Args:
@@ -117,6 +117,11 @@ class DataProcessor:
         if pd.isna(dias):
             dias = 0
 
+        # VERIFICACIÓN PRIORITARIA: Estación paralizada
+        # Esta condición tiene precedencia sobre cualquier estado explícito
+        if disponibilidad <= 0.5 and dias >= config.PRIORITY_PARALIZADA_MIN_DAYS:
+            return 'BAJA'
+
         # Clasificación por estado explícito: "Nueva"
         if 'nueva' in estado:
             return 'ALTA' if dias <= config.PRIORITY_HIGH_MAX_DAYS else 'MEDIA'
@@ -132,18 +137,13 @@ class DataProcessor:
 
         # Clasificación por estado explícito: "Paralizada"
         elif 'paralizada' in estado:
-            # Paralizadas con disponibilidad ≈0% y >= 90 días
-            if disponibilidad <= 0.5 and dias >= config.PRIORITY_PARALIZADA_MIN_DAYS:
-                return 'BAJA'
-            else:
-                return 'MEDIA'  # Paralizada reciente
+            # Si llegó aquí, es porque no cumple condiciones de BAJA
+            return 'MEDIA'  # Paralizada reciente o con disponibilidad > 0.5%
 
         # Clasificación automática por disponibilidad y tiempo
         if disponibilidad < config.THRESHOLD_CRITICAL:
             if dias <= config.PRIORITY_HIGH_MAX_DAYS:
                 return 'ALTA'
-            elif dias >= config.PRIORITY_PARALIZADA_MIN_DAYS and disponibilidad <= 0.5:
-                return 'BAJA'  # Paralizada sin estado explícito
             else:
                 return 'MEDIA'  # Recurrente sin estado explícito
 
