@@ -2,9 +2,9 @@
 
 Dashboard interactivo para monitoreo de disponibilidad de red meteorológica del Sistema de Gestión de Riesgos (SGR).
 
-**Versión:** 2.1 (Refactorizado)  
-**Autor:** Sistema de Monitoreo Meteorológico - SGR  
-**Fecha:** Noviembre 2025
+**Versión:** 2.2 (Mejoras Críticas)
+**Autor:** Sistema de Monitoreo Meteorológico - SGR
+**Fecha:** Diciembre 2025
 
 ---
 
@@ -25,13 +25,16 @@ Dashboard interactivo para monitoreo de disponibilidad de red meteorológica del
 ## ✨ Características
 
 - 📊 **Análisis Integral**: Visualización de disponibilidad por estación, sensor y variable meteorológica
-- 🚨 **Sistema de Alertas**: Clasificación automática de prioridades (ALTA/MEDIA/BAJA)
-- 📈 **Gráficos Interactivos**: 13+ visualizaciones con Plotly
+- 🚨 **Sistema de Alertas Mejorado**: Clasificación automática de prioridades (ALTA/MEDIA/BAJA) con razones explicativas
+- 🗺️ **Filtro por Dirección Zonal**: Visualización focalizada por DZ o vista global de toda la red
+- ⚪ **Monitoreo de Paralizadas**: Sección dedicada para estaciones paralizadas con alertas de clausura (>2 años)
+- 📈 **Gráficos Interactivos**: 13+ visualizaciones con Plotly, incluyendo boxplot por tipo de sensor
 - 🔍 **Filtros Dinámicos**: Búsqueda y filtrado por múltiples criterios
 - 📥 **Exportación**: Descarga de datos en formato CSV
-- 🎨 **Interfaz Moderna**: Diseño responsive con Streamlit
+- 🎨 **Interfaz Moderna**: Diseño responsive con Streamlit y CSS gradientes
 - ⚡ **Caché Inteligente**: Carga rápida de datos repetidos
-- 📝 **Seguimiento de Incidencias**: Monitoreo de comentarios técnicos
+- 📝 **Seguimiento de Incidencias**: Monitoreo de comentarios técnicos con tarjetas expandibles
+- 🔤 **Validación Flexible**: Procesamiento case-insensitive de columnas Excel
 
 ---
 
@@ -173,35 +176,51 @@ Ejemplo: `reporte_disponibilidad_SGR_0810_1910.xlsx`
 
 ### 1. 🚨 Alertas y Prioridades
 
-Clasificación automática de estaciones:
+Clasificación automática de estaciones con razones explicativas:
 
-- **🔴 PRIORIDAD ALTA**: Nuevas (≤30 días) o críticas sin resolver
-- **🟡 PRIORIDAD MEDIA**: Recurrentes o en monitoreo post-solución
-- **⚪ INFORMATIVO**: Paralizadas (>30 días)
+- **🔴 PRIORIDAD ALTA**: Incidencias nuevas (≤30 días) con disponibilidad crítica (<80%)
+- **🟡 PRIORIDAD MEDIA**: Recurrentes (>30 días) o en monitoreo post-solución (≤5 días)
+- **⚪ PRIORIDAD BAJA** (Paralizadas): Estaciones con ≥90 días de incidencia y disponibilidad ≤0.5%
+  - ⚠️ Alerta especial para candidatas a clausura (>730 días / 2 años)
+
+**Columna "Razón de Prioridad"**: Cada estación incluye explicación automática de su clasificación, mostrando días transcurridos, disponibilidad y estado de incidencia.
 
 ### 2. 📊 Métricas Globales
 
-- Disponibilidad promedio de la red
+- Disponibilidad promedio de la red (filtrable por DZ)
 - Número de estaciones críticas (<80%)
+- Contadores de prioridad: ALTA, MEDIA y BAJA (paralizadas)
 - Porcentaje de red en estado crítico
 - Anomalías detectadas (>100%)
 - DZ afectadas
 
+**🗺️ Filtro por Dirección Zonal**: Selector en sidebar para ver métricas y gráficos de una DZ específica o de toda la red ("Todas")
+
 ### 3. 🏢 Análisis por Estación
 
-- Histograma de distribución
+**Sección de Alertas:**
+- Tarjetas compactas con estaciones de prioridad ALTA (expandibles)
+- Sección dedicada para estaciones PARALIZADAS (BAJA) con:
+  - Tabla resumen ordenada por días de paralización
+  - Alerta especial para candidatas a clausura (>2 años)
+  - Tarjetas expandibles con comentarios técnicos
+  - Diferenciación visual: borde rojo para >2 años, gris para <2 años
+
+**Análisis y Visualizaciones:**
+- Histograma de distribución de disponibilidad
 - Gráfico de torta por categoría
 - Disponibilidad promedio por DZ
 - Ranking de estaciones críticas (Top 15)
 - Filtros por categoría, prioridad y disponibilidad
-- Exportación a CSV
+- Exportación a CSV con "Razón de Prioridad"
 
 ### 4. 📡 Análisis por Sensor
 
-- Boxplot de distribución
-- Conteo por categoría
-- Disponibilidad por tipo de sensor
-- Tabla completa con métricas
+- **Boxplot mejorado**: Distribución de disponibilidad por tipo de sensor (permite comparar comportamiento entre diferentes tipos)
+- Conteo por categoría de disponibilidad
+- Disponibilidad promedio por tipo de sensor
+- Tabla completa con métricas normalizadas
+- Detección de anomalías (>100%)
 - Exportación a CSV
 
 ### 5. 📈 Análisis por Variable
@@ -234,8 +253,10 @@ THRESHOLD_CRITICAL: float = 80.0   # Cambiar umbral crítico
 THRESHOLD_ANOMALY: float = 100.0   # Cambiar umbral de anomalía
 
 # Clasificación de prioridades (días)
-PRIORITY_HIGH_MAX_DAYS: int = 30   # Días para prioridad ALTA
-PRIORITY_MEDIUM_MONITOR_DAYS: int = 5  # Días de monitoreo post-solución
+PRIORITY_HIGH_MAX_DAYS: int = 30              # Días para prioridad ALTA
+PRIORITY_MEDIUM_MONITOR_DAYS: int = 5         # Días de monitoreo post-solución
+PRIORITY_PARALIZADA_MIN_DAYS: int = 90        # Días para clasificar como paralizada (3 meses)
+PRIORITY_CLAUSURA_MIN_DAYS: int = 730         # Días para alerta de clausura (2 años)
 ```
 
 ### Cambiar Ruta de Reportes
@@ -275,6 +296,11 @@ COLOR_WARNING: str = "#ff7f0e"   # Color para advertencias
   - `POR VARIABLE`
 - Verifica que todas las columnas requeridas existen
 
+**Nota:** El sistema ahora acepta columnas en mayúsculas o minúsculas (case-insensitive). Por ejemplo:
+- `Comentario`, `comentario`, `COMENTARIO` → Todos funcionan
+- `Estacion`, `estacion` → Ambos válidos
+- `DZ`, `dz` → Ambos aceptados
+
 ### El dashboard no carga
 
 **Solución:**
@@ -307,6 +333,34 @@ Para reportar problemas o sugerir mejoras:
 ---
 
 ## 📝 Notas de Versión
+
+### Versión 2.2 (Diciembre 2025) - MEJORAS CRÍTICAS
+
+**🔧 Correcciones Críticas:**
+- ✅ **FIX**: Detección correcta de estaciones paralizadas (BAJA)
+  - Problema: Clasificación incorrecta cuando `estado_inci` contradecía disponibilidad real
+  - Solución: Prioridad de verificación por condiciones reales (disponibilidad + días) sobre estado explícito
+- ✅ **FIX**: Validación case-insensitive de columnas Excel
+  - Ahora acepta "comentario", "Comentario", "COMENTARIO", etc.
+
+**🎨 Nuevas Funcionalidades:**
+- ✅ **Filtro por Dirección Zonal (DZ)** en sidebar con selector "Todas" o DZ específica
+- ✅ **Sección de Estaciones Paralizadas** con:
+  - Tabla ordenada por días de paralización
+  - Alertas para candidatas a clausura (>2 años)
+  - Tarjetas expandibles con diferenciación visual (rojo: >2 años, gris: <2 años)
+- ✅ **Columna "Razón de Prioridad"**: Explicación automática de clasificación
+- ✅ **Boxplot mejorado por sensor**: Comparación de distribución entre tipos de sensores
+
+**📊 Mejoras de UI:**
+- ✅ Tarjetas de alerta más compactas con gradientes CSS
+- ✅ Tablas con altura dinámica según contenido
+- ✅ Contadores de prioridad: ALTA, MEDIA, BAJA (paralizadas)
+- ✅ Descripciones detalladas en cada sección
+
+**⚙️ Nuevos Parámetros de Configuración:**
+- `PRIORITY_PARALIZADA_MIN_DAYS = 90` (3 meses)
+- `PRIORITY_CLAUSURA_MIN_DAYS = 730` (2 años)
 
 ### Versión 2.1 (Noviembre 2025)
 - ✅ Refactorización completa en arquitectura modular
