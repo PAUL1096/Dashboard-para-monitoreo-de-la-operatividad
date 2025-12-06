@@ -132,8 +132,8 @@ class DataProcessor:
 
         # Clasificación por estado explícito: "Paralizada"
         elif 'paralizada' in estado:
-            # Paralizadas con disponibilidad 0% y >= 90 días
-            if disponibilidad == 0 and dias >= config.PRIORITY_PARALIZADA_MIN_DAYS:
+            # Paralizadas con disponibilidad ≈0% y >= 90 días
+            if disponibilidad <= 0.5 and dias >= config.PRIORITY_PARALIZADA_MIN_DAYS:
                 return 'BAJA'
             else:
                 return 'MEDIA'  # Paralizada reciente
@@ -142,7 +142,7 @@ class DataProcessor:
         if disponibilidad < config.THRESHOLD_CRITICAL:
             if dias <= config.PRIORITY_HIGH_MAX_DAYS:
                 return 'ALTA'
-            elif dias >= config.PRIORITY_PARALIZADA_MIN_DAYS and disponibilidad == 0:
+            elif dias >= config.PRIORITY_PARALIZADA_MIN_DAYS and disponibilidad <= 0.5:
                 return 'BAJA'  # Paralizada sin estado explícito
             else:
                 return 'MEDIA'  # Recurrente sin estado explícito
