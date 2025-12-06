@@ -91,51 +91,112 @@ class DataProcessor:
     def clasificar_prioridad(row: pd.Series) -> str:
         """
         Clasifica prioridad de atención según estado y días de incidencia
-        
-        Reglas de clasificación:
-        - ALTA: Incidencias nuevas (≤30 días) o críticas sin resolver
+
+        Reglas de clasificación (actualizadas Nov 2025):
+        - BAJA: Paralizadas (≥90 días + disponibilidad ≤ 0.5%) - MÁXIMA PRIORIDAD
+        - ALTA: Incidencias nuevas (≤30 días) con disponibilidad crítica
         - MEDIA: Recurrentes (>30 días) o Solucionadas en monitoreo (≤5 días)
-        - BAJA: Paralizadas (>30 días con baja disponibilidad)
         - N/A: Sin incidencias o disponibilidad >= umbral
-        
+
         Args:
-            row: Fila del DataFrame con columnas: 
+            row: Fila del DataFrame con columnas:
                   'estado_inci', 'dias_desde_inci', 'disponibilidad'
-        
+
         Returns:
             str: 'ALTA', 'MEDIA', 'BAJA', o 'N/A'
         """
         estado = str(row.get('estado_inci', '')).lower().strip()
         dias = row.get('dias_desde_inci')
         disponibilidad = row.get('disponibilidad', 100)
-        
+
         # Sin incidencia y operativa
         if pd.isna(dias) and disponibilidad >= config.THRESHOLD_CRITICAL:
             return 'N/A'
-        
+
         # Días por defecto si no hay valor
         if pd.isna(dias):
             dias = 0
-        
-        # Clasificación por estado explícito
-        if 'nuevo' in estado:
+
+        # VERIFICACIÓN PRIORITARIA: Estación paralizada
+        # Esta condición tiene precedencia sobre cualquier estado explícito
+        if disponibilidad <= 0.5 and dias >= config.PRIORITY_PARALIZADA_MIN_DAYS:
+            return 'BAJA'
+
+        # Clasificación por estado explícito: "Nueva"
+        if 'nueva' in estado:
             return 'ALTA' if dias <= config.PRIORITY_HIGH_MAX_DAYS else 'MEDIA'
-        
+
+        # Clasificación por estado explícito: "Recurrente"
         elif 'recurrente' in estado:
             return 'MEDIA'
-        
-        elif 'solucionado' in estado:
+
+        # Clasificación por estado explícito: "Solucionada"
+        elif 'solucionado' in estado or 'solucionada' in estado:
             # Monitoreo post-solución
             return 'MEDIA' if dias <= config.PRIORITY_MEDIUM_MONITOR_DAYS else 'N/A'
-        
-        # Clasificación por disponibilidad y tiempo
+
+        # Clasificación por estado explícito: "Paralizada"
+        elif 'paralizada' in estado:
+            # Si llegó aquí, es porque no cumple condiciones de BAJA
+            return 'MEDIA'  # Paralizada reciente o con disponibilidad > 0.5%
+
+        # Clasificación automática por disponibilidad y tiempo
         if disponibilidad < config.THRESHOLD_CRITICAL:
             if dias <= config.PRIORITY_HIGH_MAX_DAYS:
                 return 'ALTA'
             else:
-                return 'BAJA'  # Paralizada
-        
+                return 'MEDIA'  # Recurrente sin estado explícito
+
         return 'N/A'
+
+    @staticmethod
+    def generar_razon_prioridad(row: pd.Series) -> str:
+        """
+        Genera explicación de por qué la estación tiene su prioridad
+
+        Args:
+            row: Fila con columnas: prioridad, estado_inci, dias_desde_inci, disponibilidad
+
+        Returns:
+            str: Explicación textual de la razón
+        """
+        prioridad = row.get('prioridad', 'N/A')
+        estado = str(row.get('estado_inci', '')).strip()
+        dias = row.get('dias_desde_inci')
+        disponibilidad = row.get('disponibilidad', 100)
+
+        if prioridad == 'N/A':
+            return "Operativa - Sin incidencias críticas"
+
+        if pd.isna(dias):
+            dias_texto = "sin fecha"
+        else:
+            dias_texto = f"{int(dias)} días"
+
+        # Alerta de clausura
+        alerta_clausura = ""
+        if not pd.isna(dias) and dias >= config.PRIORITY_CLAUSURA_MIN_DAYS:
+            años = dias // 365
+            alerta_clausura = f" ⚠️ CANDIDATA A CLAUSURA ({años} años)"
+
+        if prioridad == 'ALTA':
+            if disponibilidad < config.THRESHOLD_CRITICAL:
+                return f"Nueva ({dias_texto}) + Disponibilidad crítica ({disponibilidad:.1f}%)"
+            else:
+                return f"Incidencia nueva ({dias_texto}) - Estado: {estado}"
+
+        elif prioridad == 'MEDIA':
+            if 'recurrente' in estado.lower():
+                return f"Recurrente ({dias_texto}) - Requiere seguimiento continuo"
+            elif 'solucionado' in estado.lower():
+                return f"Solucionada - En monitoreo post-reparación ({dias_texto})"
+            else:
+                return f"En proceso ({dias_texto}) - Disponibilidad: {disponibilidad:.1f}%"
+
+        elif prioridad == 'BAJA':
+            return f"Paralizada ({dias_texto}) - Disponibilidad: {disponibilidad:.1f}%{alerta_clausura}"
+
+        return f"Estado: {estado} - {dias_texto}"
     
     @staticmethod
     def crear_id_sensor_unico(row: pd.Series) -> str:
@@ -164,37 +225,41 @@ class DataProcessor:
     def procesar_estaciones(cls, df: pd.DataFrame) -> pd.DataFrame:
         """
         Procesa DataFrame de estaciones con clasificaciones y cálculos
-        
+
         Agrega columnas:
         - dias_desde_inci: Días desde la incidencia
         - prioridad: Clasificación ALTA/MEDIA/BAJA/N/A
+        - razon_prioridad: Explicación de por qué tiene esa prioridad
         - disponibilidad_norm: Disponibilidad normalizada (≤100%)
         - es_anomalia: Boolean si disponibilidad > 100%
-        
+
         Args:
             df: DataFrame con datos de estaciones (hoja POR ESTACION)
-            
+
         Returns:
             DataFrame procesado con columnas adicionales
         """
         df_proc = df.copy()
-        
+
         # Calcular días desde incidencia
         df_proc['dias_desde_inci'] = df_proc['f_inci'].apply(
             cls.calcular_dias_desde_incidencia
         )
-        
+
         # Clasificar prioridad
         df_proc['prioridad'] = df_proc.apply(cls.clasificar_prioridad, axis=1)
-        
+
+        # Generar razón de prioridad
+        df_proc['razon_prioridad'] = df_proc.apply(cls.generar_razon_prioridad, axis=1)
+
         # Normalizar disponibilidad
         df_proc['disponibilidad_norm'] = df_proc['disponibilidad'].apply(
             cls.normalizar_disponibilidad
         )
-        
+
         # Detectar anomalías
         df_proc['es_anomalia'] = df_proc['disponibilidad'] > config.THRESHOLD_ANOMALY
-        
+
         return df_proc
     
     @classmethod

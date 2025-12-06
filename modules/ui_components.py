@@ -77,8 +77,8 @@ class UIComponents:
             <div class="prioridad-baja">
                 <p class="prioridad-title">⚪ INFORMATIVO</p>
                 <p class="prioridad-number">{baja_count}</p>
-                <p class="prioridad-desc">Paralizadas (>30 días)</p>
-                <p class="prioridad-detail">Incidencias de largo plazo o estables</p>
+                <p class="prioridad-desc">Paralizadas (≥90 días)</p>
+                <p class="prioridad-detail">Disponibilidad 0% - Candidatas a clausura si >2 años</p>
             </div>
             """, unsafe_allow_html=True)
 
@@ -91,9 +91,10 @@ class UIComponents:
                 'dias_desde_inci', ascending=False
             )
 
+            # Incluir columna razon_prioridad si existe
             cols_mostrar = [
-                'DZ', 'Estacion', 'disponibilidad', 'var_disp',
-                'estado_inci', 'dias_desde_inci', 'f_inci'
+                'DZ', 'Estacion', 'disponibilidad', 'razon_prioridad',
+                'estado_inci', 'dias_desde_inci'
             ]
             cols_disponibles = [col for col in cols_mostrar if col in df_alta.columns]
 
@@ -101,19 +102,116 @@ class UIComponents:
             st.dataframe(
                 df_alta[cols_disponibles],
                 use_container_width=True,
-                height=min(250, 50 + len(df_alta) * 35)  # Altura dinámica pero limitada
+                height=min(300, 50 + len(df_alta) * 35),  # Altura dinámica pero limitada
+                column_config={
+                    "razon_prioridad": st.column_config.TextColumn(
+                        "Razón de Prioridad",
+                        width="large"
+                    ),
+                    "disponibilidad": st.column_config.NumberColumn(
+                        "Disponibilidad (%)",
+                        format="%.2f%%"
+                    )
+                }
             )
 
-            # Mostrar expandible con comentarios si existen
-            if 'comentario' in df_alta.columns:
-                with st.expander("📝 Ver comentarios técnicos detallados"):
-                    for idx, row in df_alta.iterrows():
-                        if pd.notna(row.get('comentario', '')):
-                            st.markdown(f"""
-                            **{row['Estacion']}** ({row['DZ']}) - *{row['estado_inci']}*
-                            → {row['comentario']}
-                            """)
-                            st.markdown("---")
+            # Expandible con tarjetas individuales
+            with st.expander("📝 Ver detalle completo por estación (con comentarios técnicos)"):
+                for idx, row in df_alta.iterrows():
+                    # Detectar alerta de clausura
+                    dias = row.get('dias_desde_inci', 0)
+                    alerta_clausura = ""
+                    if pd.notna(dias) and dias >= 730:  # 2 años
+                        años = int(dias // 365)
+                        alerta_clausura = f' <span style="color: #d62728; font-weight: bold;">⚠️ CANDIDATA A CLAUSURA ({años} años)</span>'
+
+                    st.markdown(f"""
+                    <div style="border: 2px solid #d62728; border-radius: 8px; padding: 12px; margin: 10px 0; background: #fff5f5;">
+                        <h4 style="margin: 0 0 8px 0; color: #d62728;">
+                            🔴 {row['Estacion']} ({row['DZ']}){alerta_clausura}
+                        </h4>
+                        <p style="margin: 4px 0;"><strong>📉 Disponibilidad:</strong> {row['disponibilidad']:.2f}%</p>
+                        <p style="margin: 4px 0;"><strong>📅 Estado:</strong> {row['estado_inci']} - {row.get('dias_desde_inci', 'N/A')} días</p>
+                        <p style="margin: 4px 0;"><strong>🎯 Razón:</strong> {row.get('razon_prioridad', 'N/A')}</p>
+                        <p style="margin: 8px 0 0 0; padding-top: 8px; border-top: 1px solid #ffcccc;">
+                            <strong>💬 Comentario Técnico:</strong><br>
+                            <em>{row.get('Comentario', 'Sin comentarios')}</em>
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        # Mostrar sección de estaciones paralizadas (BAJA) si hay
+        if baja_count > 0:
+            st.markdown("")  # Espacio
+            st.subheader("⚪ Estaciones Paralizadas - Monitoreo Especial")
+
+            df_baja = df_estaciones[df_estaciones['prioridad'] == 'BAJA'].sort_values(
+                'dias_desde_inci', ascending=False
+            )
+
+            # Separar estaciones con alerta de clausura
+            df_clausura = df_baja[df_baja['dias_desde_inci'] >= 730]
+            clausura_count = len(df_clausura)
+
+            if clausura_count > 0:
+                st.warning(f"⚠️ **{clausura_count} estación(es) candidata(s) a clausura** (>2 años paralizadas)")
+
+            # Tabla de paralizadas
+            cols_mostrar = [
+                'DZ', 'Estacion', 'disponibilidad', 'razon_prioridad',
+                'estado_inci', 'dias_desde_inci'
+            ]
+            cols_disponibles = [col for col in cols_mostrar if col in df_baja.columns]
+
+            st.dataframe(
+                df_baja[cols_disponibles],
+                use_container_width=True,
+                height=min(300, 50 + len(df_baja) * 35),
+                column_config={
+                    "razon_prioridad": st.column_config.TextColumn(
+                        "Razón",
+                        width="large"
+                    ),
+                    "disponibilidad": st.column_config.NumberColumn(
+                        "Disponibilidad (%)",
+                        format="%.2f%%"
+                    )
+                }
+            )
+
+            # Expandible con detalle completo
+            with st.expander("📝 Ver detalle completo de estaciones paralizadas"):
+                for idx, row in df_baja.iterrows():
+                    dias = row.get('dias_desde_inci', 0)
+
+                    # Determinar si es candidata a clausura
+                    es_clausura = pd.notna(dias) and dias >= 730
+                    años = int(dias // 365) if pd.notna(dias) else 0
+
+                    if es_clausura:
+                        # Estilo especial para candidatas a clausura
+                        border_color = "#d62728"
+                        bg_color = "#ffe6e6"
+                        alerta_titulo = f' <span style="color: #d62728; font-weight: bold; font-size: 0.9em;">⚠️ CANDIDATA A CLAUSURA ({años} años)</span>'
+                    else:
+                        border_color = "#9e9e9e"
+                        bg_color = "#fafafa"
+                        alerta_titulo = ""
+
+                    st.markdown(f"""
+                    <div style="border: 2px solid {border_color}; border-radius: 8px; padding: 12px; margin: 10px 0; background: {bg_color};">
+                        <h4 style="margin: 0 0 8px 0; color: {border_color};">
+                            ⚪ {row['Estacion']} ({row['DZ']}){alerta_titulo}
+                        </h4>
+                        <p style="margin: 4px 0;"><strong>📉 Disponibilidad:</strong> {row['disponibilidad']:.2f}%</p>
+                        <p style="margin: 4px 0;"><strong>📅 Estado:</strong> {row['estado_inci']} - {row.get('dias_desde_inci', 'N/A')} días ({años} años)</p>
+                        <p style="margin: 4px 0;"><strong>🎯 Razón:</strong> {row.get('razon_prioridad', 'N/A')}</p>
+                        <p style="margin: 8px 0 0 0; padding-top: 8px; border-top: 1px solid #e0e0e0;">
+                            <strong>💬 Comentario Técnico:</strong><br>
+                            <em>{row.get('Comentario', 'Sin comentarios')}</em>
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
     
     # ========================================================================
     # SECCIÓN: MÉTRICAS GLOBALES

@@ -252,34 +252,50 @@ class ChartBuilder:
     @staticmethod
     def crear_boxplot_sensores(df_sensores: pd.DataFrame) -> go.Figure:
         """
-        Crea boxplot de distribución de disponibilidad de sensores
-        
+        Crea boxplot de distribución de disponibilidad por tipo de sensor
+
         Args:
             df_sensores: DataFrame procesado de sensores
-            
+
         Returns:
-            Figura de Plotly con boxplot
+            Figura de Plotly con boxplot por tipo de sensor
         """
+        # Agrupar por tipo de sensor
         fig = px.box(
             df_sensores,
+            x='Sensor',
             y='disponibilidad',
-            title='Distribución de Disponibilidad - Sensores',
-            labels={'disponibilidad': 'Disponibilidad (%)'}
+            title='Distribución de Disponibilidad por Tipo de Sensor',
+            labels={
+                'Sensor': 'Tipo de Sensor',
+                'disponibilidad': 'Disponibilidad (%)'
+            },
+            color='Sensor',
+            color_discrete_sequence=px.colors.qualitative.Set3
         )
-        
-        # Agregar línea de umbral
+
+        # Agregar línea de umbral crítico
         fig.add_hline(
             y=config.THRESHOLD_CRITICAL,
             line_dash=charts.CRITICAL_LINE_DASH,
             line_color=charts.CRITICAL_LINE_COLOR,
-            annotation_text=f"Umbral Crítico ({config.THRESHOLD_CRITICAL}%)"
+            annotation_text=f"Umbral Crítico ({config.THRESHOLD_CRITICAL}%)",
+            annotation_position="right"
         )
-        
+
+        # Mejorar layout
         fig.update_layout(
             yaxis_title="Disponibilidad (%)",
-            showlegend=False
+            xaxis_title="Tipo de Sensor",
+            showlegend=False,
+            height=500,
+            xaxis={'categoryorder': 'total descending'}  # Ordenar por mediana
         )
-        
+
+        # Rotar etiquetas del eje X si hay muchos sensores
+        if df_sensores['Sensor'].nunique() > 5:
+            fig.update_xaxes(tickangle=-45)
+
         return fig
     
     @staticmethod
