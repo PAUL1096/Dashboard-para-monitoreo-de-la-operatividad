@@ -149,8 +149,57 @@ class DashboardApp:
         if st.sidebar.button("🔄 Recargar datos", help="Limpia la caché y recarga"):
             st.cache_data.clear()
             st.rerun()
-        
+
         return datos, nombre_archivo
+
+    def filtrar_por_dz_sidebar(self, df_estaciones, df_sensores, df_variables):
+        """
+        Renderiza selector de DZ en sidebar y filtra los DataFrames
+
+        Args:
+            df_estaciones: DataFrame de estaciones
+            df_sensores: DataFrame de sensores
+            df_variables: DataFrame de variables
+
+        Returns:
+            Tupla (df_estaciones_filtrado, df_sensores_filtrado, df_variables_filtrado, dz_seleccionada)
+        """
+        st.sidebar.markdown("---")
+        st.sidebar.header("🗺️ Filtro por Dirección Zonal")
+
+        # Obtener lista única de DZ ordenadas
+        dzs_disponibles = sorted(df_estaciones['DZ'].unique().tolist())
+
+        # Agregar opción "Todas" al inicio
+        opciones_dz = ['Todas'] + dzs_disponibles
+
+        # Selector de DZ
+        dz_seleccionada = st.sidebar.selectbox(
+            "Selecciona una DZ:",
+            opciones_dz,
+            index=0,
+            help="Filtra todas las métricas, gráficos y tablas por Dirección Zonal"
+        )
+
+        # Aplicar filtro si no es "Todas"
+        if dz_seleccionada == 'Todas':
+            st.sidebar.info(f"📊 Mostrando **{len(dzs_disponibles)} DZ** en total")
+            return df_estaciones, df_sensores, df_variables, dz_seleccionada
+        else:
+            # Filtrar DataFrames
+            df_est_filtrado = df_estaciones[df_estaciones['DZ'] == dz_seleccionada].copy()
+            df_sen_filtrado = df_sensores[df_sensores['DZ'] == dz_seleccionada].copy()
+            df_var_filtrado = df_variables[df_variables['DZ'] == dz_seleccionada].copy()
+
+            # Mostrar info del filtro
+            st.sidebar.success(f"✅ Filtrando por: **{dz_seleccionada}**")
+            st.sidebar.info(
+                f"📊 **{len(df_est_filtrado)}** estaciones\n\n"
+                f"📡 **{len(df_sen_filtrado)}** sensores\n\n"
+                f"📈 **{len(df_var_filtrado)}** variables"
+            )
+
+            return df_est_filtrado, df_sen_filtrado, df_var_filtrado, dz_seleccionada
     
     def mostrar_instrucciones_carga(self, ruta_carpeta: str):
         """
@@ -246,18 +295,18 @@ class DashboardApp:
         """Ejecuta la aplicación principal"""
         # Configurar página
         self.configurar_pagina()
-        
+
         # Mostrar header
         self.mostrar_header()
-        
+
         # Cargar datos
         datos, nombre_archivo = self.cargar_datos_sidebar()
-        
+
         # Si no hay datos, mostrar instrucciones
         if datos is None:
             self.mostrar_instrucciones_carga(config.DEFAULT_REPORTS_PATH)
             return
-        
+
         # Procesar datos
         try:
             df_estaciones, df_sensores, df_variables = self.procesar_datos(datos)
@@ -265,7 +314,16 @@ class DashboardApp:
             st.error(f"❌ {str(e)}")
             st.info("💡 Verifica que el archivo tenga la estructura correcta.")
             return
-        
+
+        # Aplicar filtro por DZ
+        df_estaciones, df_sensores, df_variables, dz_seleccionada = self.filtrar_por_dz_sidebar(
+            df_estaciones, df_sensores, df_variables
+        )
+
+        # Mostrar indicador de filtro en el header si aplica
+        if dz_seleccionada != 'Todas':
+            st.info(f"🗺️ **Vista filtrada por:** {dz_seleccionada}")
+
         # Renderizar dashboard
         try:
             self.renderizar_dashboard(df_estaciones, df_sensores, df_variables)
