@@ -261,12 +261,55 @@ class UIComponents:
     def mostrar_tab_estaciones(self, df_estaciones: pd.DataFrame):
         """
         Renderiza contenido del tab de estaciones
-        
+
         Args:
             df_estaciones: DataFrame procesado de estaciones
         """
         st.subheader("Análisis de Disponibilidad por Estación")
-        
+
+        # Métricas de estaciones mejoradas
+        total_estaciones = len(df_estaciones)
+
+        # Calcular categorías operativas
+        operativas = (df_estaciones['disponibilidad'] >= config.THRESHOLD_CRITICAL).sum()
+        inoperativas = (df_estaciones['disponibilidad'] == 0).sum()
+        parcialmente_operativas = total_estaciones - operativas - inoperativas
+
+        # Calcular estaciones con incidencias (tienen prioridad asignada)
+        con_incidencias = df_estaciones['prioridad'].notna().sum()
+
+        # Disponibilidad promedio
+        disponibilidad_promedio = df_estaciones['disponibilidad'].mean()
+
+        # Calcular porcentajes
+        pct_operativas = (operativas / total_estaciones * 100) if total_estaciones > 0 else 0
+        pct_parcial = (parcialmente_operativas / total_estaciones * 100) if total_estaciones > 0 else 0
+        pct_inoperativas = (inoperativas / total_estaciones * 100) if total_estaciones > 0 else 0
+        pct_incidencias = (con_incidencias / total_estaciones * 100) if total_estaciones > 0 else 0
+
+        # Mostrar métricas en 6 columnas
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+
+        with col1:
+            st.metric("Total Estaciones", total_estaciones)
+
+        with col2:
+            st.metric("Operativas", f"{operativas} ({pct_operativas:.1f}%)")
+
+        with col3:
+            st.metric("Parcialmente Operativas", f"{parcialmente_operativas} ({pct_parcial:.1f}%)")
+
+        with col4:
+            st.metric("Inoperativas", f"{inoperativas} ({pct_inoperativas:.1f}%)")
+
+        with col5:
+            st.metric("Con Incidencias", f"{con_incidencias} ({pct_incidencias:.1f}%)")
+
+        with col6:
+            st.metric("Disponibilidad Promedio", f"{disponibilidad_promedio:.1f}%")
+
+        st.markdown("---")
+
         # Gráficos principales
         col1, col2 = st.columns(2)
         
@@ -377,25 +420,42 @@ class UIComponents:
     def mostrar_tab_sensores(self, df_sensores: pd.DataFrame):
         """
         Renderiza contenido del tab de sensores
-        
+
         Args:
             df_sensores: DataFrame procesado de sensores
         """
         st.subheader("Análisis por Sensor/Equipamiento")
-        
-        # Métricas de sensores
-        col1, col2, col3 = st.columns(3)
-        
+
+        # Métricas de sensores mejoradas
+        total_sensores = len(df_sensores)
+
+        # Calcular categorías
+        operativos = (df_sensores['disponibilidad'] >= config.THRESHOLD_CRITICAL).sum()
+        inoperativos = (df_sensores['disponibilidad'] == 0).sum()
+        parcialmente_operativos = total_sensores - operativos - inoperativos
+        criticos = (df_sensores['disponibilidad'] < config.THRESHOLD_CRITICAL).sum()
+
+        # Calcular porcentajes
+        pct_op = (operativos / total_sensores * 100) if total_sensores > 0 else 0
+        pct_parcial = (parcialmente_operativos / total_sensores * 100) if total_sensores > 0 else 0
+        pct_inop = (inoperativos / total_sensores * 100) if total_sensores > 0 else 0
+
+        # Mostrar métricas en 5 columnas
+        col1, col2, col3, col4, col5 = st.columns(5)
+
         with col1:
-            st.metric("Total Sensores", len(df_sensores))
-        
+            st.metric("Total Sensores", total_sensores)
+
         with col2:
-            operativos = (df_sensores['disponibilidad'] >= config.THRESHOLD_CRITICAL).sum()
-            pct_op = (operativos / len(df_sensores) * 100) if len(df_sensores) > 0 else 0
             st.metric("Operativos", f"{operativos} ({pct_op:.1f}%)")
-        
+
         with col3:
-            criticos = (df_sensores['disponibilidad'] < config.THRESHOLD_CRITICAL).sum()
+            st.metric("Parcialmente Operativos", f"{parcialmente_operativos} ({pct_parcial:.1f}%)")
+
+        with col4:
+            st.metric("Inoperativos", f"{inoperativos} ({pct_inop:.1f}%)")
+
+        with col5:
             st.metric("Críticos", criticos)
         
         st.markdown("---")
@@ -442,38 +502,41 @@ class UIComponents:
     def mostrar_tab_variables(self, df_variables: pd.DataFrame):
         """
         Renderiza contenido del tab de variables
-        
+
         Args:
             df_variables: DataFrame procesado de variables
         """
         st.subheader("Análisis por Variable Meteorológica")
-        
-        # Métricas de variables
-        col1, col2, col3, col4 = st.columns(4)
-        
+
+        # Métricas de variables mejoradas
+        total_variables = len(df_variables)
+        datos_esperados = df_variables['Datos_esperados'].sum()
+        datos_recibidos = df_variables['datos_recibidos'].sum()
+        datos_faltantes = datos_esperados - datos_recibidos
+        datos_erroneos = df_variables['Datos_flag_M'].sum()
+
+        # Calcular porcentajes
+        pct_recibidos = (datos_recibidos / datos_esperados * 100) if datos_esperados > 0 else 0
+        pct_faltantes = (datos_faltantes / datos_esperados * 100) if datos_esperados > 0 else 0
+        pct_erroneos = (datos_erroneos / datos_recibidos * 100) if datos_recibidos > 0 else 0
+
+        # Mostrar métricas en 5 columnas
+        col1, col2, col3, col4, col5 = st.columns(5)
+
         with col1:
-            st.metric("Total Registros", len(df_variables))
-        
+            st.metric("Total Variables Registradas", total_variables)
+
         with col2:
-            st.metric(
-                "Datos Esperados",
-                f"{df_variables['Datos_esperados'].sum():,}"
-            )
-        
+            st.metric("Datos Esperados", f"{datos_esperados:,}")
+
         with col3:
-            st.metric(
-                "Datos Recibidos",
-                f"{df_variables['datos_recibidos'].sum():,}"
-            )
-        
+            st.metric("Datos Recibidos", f"{datos_recibidos:,} ({pct_recibidos:.1f}%)")
+
         with col4:
-            errores = df_variables['Datos_flag_M'].sum()
-            total_recibidos = df_variables['datos_recibidos'].sum()
-            pct_err = (errores / total_recibidos * 100) if total_recibidos > 0 else 0
-            st.metric(
-                "Con Error (Flag M)",
-                f"{errores:,} ({pct_err:.1f}%)"
-            )
+            st.metric("Datos Faltantes", f"{datos_faltantes:,} ({pct_faltantes:.1f}%)")
+
+        with col5:
+            st.metric("Datos Erróneos (Flag M)", f"{datos_erroneos:,} ({pct_erroneos:.1f}%)")
         
         st.markdown("---")
         
