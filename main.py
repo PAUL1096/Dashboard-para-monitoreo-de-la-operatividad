@@ -207,17 +207,23 @@ class DashboardApp:
         df_estaciones,
         df_sensores,
         df_variables,
-        dz_seleccionada: str
+        dz_seleccionada: str,
+        df_estaciones_original=None,
+        df_sensores_original=None,
+        df_variables_original=None
     ):
         """
-        Muestra botón de exportación a Excel en el sidebar
+        Muestra botones de exportación a Excel en el sidebar
 
         Args:
-            metricas_globales: Diccionario con métricas globales
+            metricas_globales: Diccionario con métricas globales (filtradas)
             df_estaciones: DataFrame de estaciones (filtrado si aplica)
             df_sensores: DataFrame de sensores (filtrado si aplica)
             df_variables: DataFrame de variables (filtrado si aplica)
             dz_seleccionada: DZ filtrada o "Todas"
+            df_estaciones_original: DataFrame original sin filtro (opcional)
+            df_sensores_original: DataFrame original sin filtro (opcional)
+            df_variables_original: DataFrame original sin filtro (opcional)
         """
         st.sidebar.markdown("---")
         st.sidebar.header("📊 Exportar Métricas")
@@ -225,28 +231,58 @@ class DashboardApp:
         # Asegurar que dz_seleccionada sea string
         dz_str = str(dz_seleccionada) if dz_seleccionada is not None else "Todas"
 
+        # Botón 1: Exportar métricas del filtro actual (formato consolidado)
         try:
-            excel_data = self.file_handler.exportar_metricas_excel(
+            excel_data_filtrado = self.file_handler.exportar_metricas_excel_consolidado(
                 metricas_globales, df_estaciones, df_sensores, df_variables, dz_str
             )
 
-            # Crear nombre de archivo seguro
             dz_para_archivo = dz_str.replace(" ", "_").replace("/", "-")
-            nombre_excel = self.file_handler.crear_nombre_descarga(
-                f'metricas_{dz_para_archivo}',
+            nombre_excel_filtrado = self.file_handler.crear_nombre_descarga(
+                f'metricas_consolidadas_{dz_para_archivo}',
                 extension='xlsx'
             )
 
             st.sidebar.download_button(
-                label="📥 Descargar Excel",
-                data=excel_data,
-                file_name=nombre_excel,
+                label=f"📥 Descargar: {dz_str}",
+                data=excel_data_filtrado,
+                file_name=nombre_excel_filtrado,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                help=f"Descarga Excel con 4 hojas separadas:\n- Métricas Globales\n- Estación\n- Sensor\n- Variable\n\n{'Filtrado por: ' + dz_str if dz_str != 'Todas' else 'Todas las DZ incluidas'}",
-                use_container_width=True
+                help=f"Descarga Excel consolidado (1 hoja con columna Módulo)\nFiltrado por: {dz_str}",
+                use_container_width=True,
+                key="btn_filtrado"
             )
         except Exception as e:
-            st.sidebar.error(f"Error al generar Excel: {str(e)}")
+            st.sidebar.error(f"Error al generar Excel filtrado: {str(e)}")
+
+        # Botón 2: Exportar TODAS las DZ (solo si hay filtro activo Y datos originales disponibles)
+        if dz_str != "Todas" and df_estaciones_original is not None:
+            st.sidebar.markdown("")
+            try:
+                # Calcular métricas globales de todos los datos
+                metricas_globales_todas = self.data_processor.calcular_metricas_globales(df_estaciones_original)
+
+                excel_data_todas = self.file_handler.exportar_metricas_excel_consolidado(
+                    metricas_globales_todas, df_estaciones_original,
+                    df_sensores_original, df_variables_original, "Todas"
+                )
+
+                nombre_excel_todas = self.file_handler.crear_nombre_descarga(
+                    'metricas_consolidadas_Todas_DZ',
+                    extension='xlsx'
+                )
+
+                st.sidebar.download_button(
+                    label="📥 Descargar: Todas las DZ",
+                    data=excel_data_todas,
+                    file_name=nombre_excel_todas,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Descarga Excel consolidado con métricas de TODAS las DZ compiladas (sin filtro)",
+                    use_container_width=True,
+                    key="btn_todas"
+                )
+            except Exception as e:
+                st.sidebar.error(f"Error al generar Excel compilado: {str(e)}")
 
     def mostrar_instrucciones_carga(self, ruta_carpeta: str):
         """
@@ -365,6 +401,11 @@ class DashboardApp:
             st.info("💡 Verifica que el archivo tenga la estructura correcta.")
             return
 
+        # Guardar copias de los DataFrames originales (ANTES del filtro)
+        df_estaciones_original = df_estaciones.copy()
+        df_sensores_original = df_sensores.copy()
+        df_variables_original = df_variables.copy()
+
         # Aplicar filtro por DZ
         df_estaciones, df_sensores, df_variables, dz_seleccionada = self.filtrar_por_dz_sidebar(
             df_estaciones, df_sensores, df_variables
@@ -373,9 +414,10 @@ class DashboardApp:
         # Calcular métricas globales (después del filtro)
         metricas_globales = self.data_processor.calcular_metricas_globales(df_estaciones)
 
-        # Mostrar botón de exportación en sidebar
+        # Mostrar botón de exportación en sidebar (con datos originales para opción "Todas las DZ")
         self.mostrar_boton_exportacion_sidebar(
-            metricas_globales, df_estaciones, df_sensores, df_variables, dz_seleccionada
+            metricas_globales, df_estaciones, df_sensores, df_variables, dz_seleccionada,
+            df_estaciones_original, df_sensores_original, df_variables_original
         )
 
         # Mostrar indicador de filtro en el header si aplica
