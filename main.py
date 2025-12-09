@@ -200,7 +200,54 @@ class DashboardApp:
             )
 
             return df_est_filtrado, df_sen_filtrado, df_var_filtrado, dz_seleccionada
-    
+
+    def mostrar_boton_exportacion_sidebar(
+        self,
+        metricas_globales: dict,
+        df_estaciones,
+        df_sensores,
+        df_variables,
+        dz_seleccionada: str
+    ):
+        """
+        Muestra botón de exportación a Excel en el sidebar
+
+        Args:
+            metricas_globales: Diccionario con métricas globales
+            df_estaciones: DataFrame de estaciones (filtrado si aplica)
+            df_sensores: DataFrame de sensores (filtrado si aplica)
+            df_variables: DataFrame de variables (filtrado si aplica)
+            dz_seleccionada: DZ filtrada o "Todas"
+        """
+        st.sidebar.markdown("---")
+        st.sidebar.header("📊 Exportar Métricas")
+
+        # Asegurar que dz_seleccionada sea string
+        dz_str = str(dz_seleccionada) if dz_seleccionada is not None else "Todas"
+
+        try:
+            excel_data = self.file_handler.exportar_metricas_excel(
+                metricas_globales, df_estaciones, df_sensores, df_variables, dz_str
+            )
+
+            # Crear nombre de archivo seguro
+            dz_para_archivo = dz_str.replace(" ", "_").replace("/", "-")
+            nombre_excel = self.file_handler.crear_nombre_descarga(
+                f'metricas_{dz_para_archivo}',
+                extension='xlsx'
+            )
+
+            st.sidebar.download_button(
+                label="📥 Descargar Excel",
+                data=excel_data,
+                file_name=nombre_excel,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help=f"Descarga Excel con 4 hojas separadas:\n- Métricas Globales\n- Estación\n- Sensor\n- Variable\n\n{'Filtrado por: ' + dz_str if dz_str != 'Todas' else 'Todas las DZ incluidas'}",
+                use_container_width=True
+            )
+        except Exception as e:
+            st.sidebar.error(f"Error al generar Excel: {str(e)}")
+
     def mostrar_instrucciones_carga(self, ruta_carpeta: str):
         """
         Muestra instrucciones cuando no hay datos cargados
@@ -250,7 +297,7 @@ class DashboardApp:
         except Exception as e:
             raise Exception(f"Error procesando datos: {str(e)}")
     
-    def renderizar_dashboard(self, df_estaciones, df_sensores, df_variables, dz_seleccionada="Todas"):
+    def renderizar_dashboard(self, df_estaciones, df_sensores, df_variables, dz_seleccionada="Todas", metricas_globales=None):
         """
         Renderiza todas las secciones del dashboard
 
@@ -259,35 +306,16 @@ class DashboardApp:
             df_sensores: DataFrame procesado de sensores
             df_variables: DataFrame procesado de variables
             dz_seleccionada: DZ filtrada o "Todas"
+            metricas_globales: Dict con métricas globales (opcional)
         """
         # Sección de alertas
         self.ui.mostrar_seccion_alertas(df_estaciones)
         st.markdown("---")
 
         # Métricas globales
-        metricas = self.data_processor.calcular_metricas_globales(df_estaciones)
-        self.ui.mostrar_metricas_globales(metricas)
-
-        # Botón de descarga de métricas en Excel
-        st.markdown("")
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            excel_data = self.file_handler.exportar_metricas_excel(
-                metricas, df_estaciones, df_sensores, df_variables, dz_seleccionada
-            )
-            nombre_excel = self.file_handler.crear_nombre_descarga(
-                f'metricas_{dz_seleccionada.replace(" ", "_")}',
-                extension='xlsx'
-            )
-            st.download_button(
-                label="📊 Descargar Métricas Completas (Excel)",
-                data=excel_data,
-                file_name=nombre_excel,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                help=f"Descarga Excel con 4 hojas: Métricas Globales, Estación, Sensor y Variable{' (filtrado por ' + dz_seleccionada + ')' if dz_seleccionada != 'Todas' else ''}",
-                use_container_width=True
-            )
-
+        if metricas_globales is None:
+            metricas_globales = self.data_processor.calcular_metricas_globales(df_estaciones)
+        self.ui.mostrar_metricas_globales(metricas_globales)
         st.markdown("---")
         
         # Tabs principales
@@ -342,13 +370,23 @@ class DashboardApp:
             df_estaciones, df_sensores, df_variables
         )
 
+        # Calcular métricas globales (después del filtro)
+        metricas_globales = self.data_processor.calcular_metricas_globales(df_estaciones)
+
+        # Mostrar botón de exportación en sidebar
+        self.mostrar_boton_exportacion_sidebar(
+            metricas_globales, df_estaciones, df_sensores, df_variables, dz_seleccionada
+        )
+
         # Mostrar indicador de filtro en el header si aplica
         if dz_seleccionada != 'Todas':
             st.info(f"🗺️ **Vista filtrada por:** {dz_seleccionada}")
 
         # Renderizar dashboard
         try:
-            self.renderizar_dashboard(df_estaciones, df_sensores, df_variables, dz_seleccionada)
+            self.renderizar_dashboard(
+                df_estaciones, df_sensores, df_variables, dz_seleccionada, metricas_globales
+            )
         except Exception as e:
             st.error(f"❌ Error al renderizar dashboard: {str(e)}")
             st.info("💡 Por favor, reporta este error al equipo de desarrollo.")
