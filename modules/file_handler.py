@@ -308,6 +308,139 @@ class ExcelFileHandler:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M")
         return f"{prefijo}_{timestamp}.{extension}"
 
+    @staticmethod
+    def exportar_metricas_excel(
+        metricas_globales: Dict,
+        df_estaciones: pd.DataFrame,
+        df_sensores: pd.DataFrame,
+        df_variables: pd.DataFrame,
+        dz_seleccionada: str = "Todas"
+    ) -> bytes:
+        """
+        Exporta métricas a Excel con múltiples hojas
+
+        Args:
+            metricas_globales: Diccionario con métricas globales
+            df_estaciones: DataFrame de estaciones procesado
+            df_sensores: DataFrame de sensores procesado
+            df_variables: DataFrame de variables procesado
+            dz_seleccionada: DZ filtrada o "Todas"
+
+        Returns:
+            Bytes del archivo Excel
+        """
+        from io import BytesIO
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+
+        # Crear workbook
+        wb = Workbook()
+        wb.remove(wb.active)  # Eliminar hoja por defecto
+
+        # Hoja 1: Métricas Globales
+        ws_global = wb.create_sheet("Métricas Globales")
+        ws_global.append(["Dashboard Meteorológico SGR - Métricas Globales"])
+        ws_global.append(["Fecha de generación:", datetime.now().strftime("%d/%m/%Y %H:%M")])
+        ws_global.append(["Filtro DZ:", dz_seleccionada])
+        ws_global.append([])  # Línea en blanco
+
+        # Encabezados
+        ws_global.append(["Métrica", "Valor"])
+        ws_global.append(["Disponibilidad Promedio", f"{metricas_globales.get('disponibilidad_promedio', 0):.1f}%"])
+        ws_global.append(["Total Estaciones", metricas_globales.get('total_estaciones', 0)])
+        ws_global.append(["Estaciones Críticas (<80%)", metricas_globales.get('estaciones_criticas', 0)])
+        ws_global.append(["% Red Crítico", f"{(metricas_globales.get('estaciones_criticas', 0) / metricas_globales.get('total_estaciones', 1) * 100):.1f}%" if metricas_globales.get('total_estaciones', 0) > 0 else "0%"])
+        ws_global.append(["Anomalías (>100%)", metricas_globales.get('estaciones_anomalias', 0)])
+        ws_global.append(["DZ Afectadas", metricas_globales.get('dz_afectadas', 0)])
+
+        # Hoja 2: Métricas Estación
+        ws_estacion = wb.create_sheet("Métricas Estación")
+        ws_estacion.append(["Métricas por Estación"])
+        ws_estacion.append(["Filtro DZ:", dz_seleccionada])
+        ws_estacion.append([])
+
+        total_est = len(df_estaciones)
+        operativas_est = (df_estaciones['disponibilidad'] >= 80).sum()
+        inoperativas_est = (df_estaciones['disponibilidad'] == 0).sum()
+        parcialmente_est = total_est - operativas_est - inoperativas_est
+
+        # Estaciones con incidencias activas
+        if 'estado_inci' in df_estaciones.columns:
+            estados_activos = ['nueva', 'recurrente']
+            con_incidencias = df_estaciones[
+                df_estaciones['estado_inci'].str.lower().isin(estados_activos)
+            ].shape[0]
+        else:
+            con_incidencias = 0
+
+        disponibilidad_prom_est = df_estaciones['disponibilidad'].mean()
+
+        ws_estacion.append(["Métrica", "Cantidad", "Porcentaje"])
+        ws_estacion.append(["Total Estaciones", total_est, "100.0%"])
+        ws_estacion.append(["Estaciones Operativas (≥80%)", operativas_est, f"{(operativas_est/total_est*100):.1f}%" if total_est > 0 else "0%"])
+        ws_estacion.append(["Estaciones Parcialmente Operativas (>0% y <80%)", parcialmente_est, f"{(parcialmente_est/total_est*100):.1f}%" if total_est > 0 else "0%"])
+        ws_estacion.append(["Estaciones Inoperativas (=0%)", inoperativas_est, f"{(inoperativas_est/total_est*100):.1f}%" if total_est > 0 else "0%"])
+        ws_estacion.append(["Con Incidencias Activas", con_incidencias, f"{(con_incidencias/total_est*100):.1f}%" if total_est > 0 else "0%"])
+        ws_estacion.append(["Disponibilidad Promedio", f"{disponibilidad_prom_est:.1f}%", ""])
+
+        # Hoja 3: Métricas Sensor
+        ws_sensor = wb.create_sheet("Métricas Sensor")
+        ws_sensor.append(["Métricas por Sensor/Equipamiento"])
+        ws_sensor.append(["Filtro DZ:", dz_seleccionada])
+        ws_sensor.append([])
+
+        total_sen = len(df_sensores)
+        operativos_sen = (df_sensores['disponibilidad'] >= 80).sum()
+        inoperativos_sen = (df_sensores['disponibilidad'] == 0).sum()
+        parcialmente_sen = total_sen - operativos_sen - inoperativos_sen
+        criticos_sen = (df_sensores['disponibilidad'] < 80).sum()
+
+        ws_sensor.append(["Métrica", "Cantidad", "Porcentaje"])
+        ws_sensor.append(["Total Sensores", total_sen, "100.0%"])
+        ws_sensor.append(["Sensores Operativos (≥80%)", operativos_sen, f"{(operativos_sen/total_sen*100):.1f}%" if total_sen > 0 else "0%"])
+        ws_sensor.append(["Sensores Parcialmente Operativos (>0% y <80%)", parcialmente_sen, f"{(parcialmente_sen/total_sen*100):.1f}%" if total_sen > 0 else "0%"])
+        ws_sensor.append(["Sensores Inoperativos (=0%)", inoperativos_sen, f"{(inoperativos_sen/total_sen*100):.1f}%" if total_sen > 0 else "0%"])
+        ws_sensor.append(["Críticos (<80%)", criticos_sen, f"{(criticos_sen/total_sen*100):.1f}%" if total_sen > 0 else "0%"])
+
+        # Hoja 4: Métricas Variable
+        ws_variable = wb.create_sheet("Métricas Variable")
+        ws_variable.append(["Métricas por Variable Meteorológica"])
+        ws_variable.append(["Filtro DZ:", dz_seleccionada])
+        ws_variable.append([])
+
+        total_var = len(df_variables)
+        datos_esperados = df_variables['Datos_esperados'].sum()
+        datos_recibidos = df_variables['datos_recibidos'].sum()
+        datos_faltantes = datos_esperados - datos_recibidos
+        datos_erroneos = df_variables['Datos_flag_M'].sum()
+
+        ws_variable.append(["Métrica", "Cantidad", "Porcentaje"])
+        ws_variable.append(["Total Variables Registradas", total_var, ""])
+        ws_variable.append(["Datos Esperados", datos_esperados, "100.0%"])
+        ws_variable.append(["Datos Recibidos", datos_recibidos, f"{(datos_recibidos/datos_esperados*100):.1f}%" if datos_esperados > 0 else "0%"])
+        ws_variable.append(["Datos Faltantes", datos_faltantes, f"{(datos_faltantes/datos_esperados*100):.1f}%" if datos_esperados > 0 else "0%"])
+        ws_variable.append(["Datos Erróneos (Flag M)", datos_erroneos, f"{(datos_erroneos/datos_recibidos*100):.1f}%" if datos_recibidos > 0 else "0%"])
+
+        # Aplicar estilos a todas las hojas
+        for ws in [ws_global, ws_estacion, ws_sensor, ws_variable]:
+            # Título en negrita y fondo
+            ws['A1'].font = Font(bold=True, size=14)
+            ws['A1'].fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            ws['A1'].font = Font(bold=True, size=14, color="FFFFFF")
+
+            # Ajustar ancho de columnas
+            ws.column_dimensions['A'].width = 40
+            ws.column_dimensions['B'].width = 20
+            if ws.max_column >= 3:
+                ws.column_dimensions['C'].width = 15
+
+        # Guardar en BytesIO
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        return output.getvalue()
+
 
 # ============================================================================
 # FUNCIONES DE UTILIDAD

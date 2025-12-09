@@ -250,22 +250,44 @@ class DashboardApp:
         except Exception as e:
             raise Exception(f"Error procesando datos: {str(e)}")
     
-    def renderizar_dashboard(self, df_estaciones, df_sensores, df_variables):
+    def renderizar_dashboard(self, df_estaciones, df_sensores, df_variables, dz_seleccionada="Todas"):
         """
         Renderiza todas las secciones del dashboard
-        
+
         Args:
             df_estaciones: DataFrame procesado de estaciones
             df_sensores: DataFrame procesado de sensores
             df_variables: DataFrame procesado de variables
+            dz_seleccionada: DZ filtrada o "Todas"
         """
         # Sección de alertas
         self.ui.mostrar_seccion_alertas(df_estaciones)
         st.markdown("---")
-        
+
         # Métricas globales
         metricas = self.data_processor.calcular_metricas_globales(df_estaciones)
         self.ui.mostrar_metricas_globales(metricas)
+
+        # Botón de descarga de métricas en Excel
+        st.markdown("")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            excel_data = self.file_handler.exportar_metricas_excel(
+                metricas, df_estaciones, df_sensores, df_variables, dz_seleccionada
+            )
+            nombre_excel = self.file_handler.crear_nombre_descarga(
+                f'metricas_{dz_seleccionada.replace(" ", "_")}',
+                extension='xlsx'
+            )
+            st.download_button(
+                label="📊 Descargar Métricas Completas (Excel)",
+                data=excel_data,
+                file_name=nombre_excel,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                help=f"Descarga Excel con 4 hojas: Métricas Globales, Estación, Sensor y Variable{' (filtrado por ' + dz_seleccionada + ')' if dz_seleccionada != 'Todas' else ''}",
+                use_container_width=True
+            )
+
         st.markdown("---")
         
         # Tabs principales
@@ -326,7 +348,7 @@ class DashboardApp:
 
         # Renderizar dashboard
         try:
-            self.renderizar_dashboard(df_estaciones, df_sensores, df_variables)
+            self.renderizar_dashboard(df_estaciones, df_sensores, df_variables, dz_seleccionada)
         except Exception as e:
             st.error(f"❌ Error al renderizar dashboard: {str(e)}")
             st.info("💡 Por favor, reporta este error al equipo de desarrollo.")
