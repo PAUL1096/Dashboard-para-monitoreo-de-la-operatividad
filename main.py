@@ -284,6 +284,36 @@ class DashboardApp:
             except Exception as e:
                 st.sidebar.error(f"Error al generar Excel compilado: {str(e)}")
 
+        # Botón 3: Exportar cada DZ como filas separadas (siempre visible)
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**📊 Exportar Cada DZ Separada:**")
+
+        try:
+            # Usar DataFrames originales (sin filtro) para exportar todas las DZ separadas
+            if df_estaciones_original is not None:
+                excel_data_separadas = self.file_handler.exportar_metricas_todas_dz_separadas(
+                    df_estaciones_original,
+                    df_sensores_original,
+                    df_variables_original
+                )
+
+                nombre_excel_separadas = self.file_handler.crear_nombre_descarga(
+                    'metricas_cada_DZ_separada',
+                    extension='xlsx'
+                )
+
+                st.sidebar.download_button(
+                    label="📥 Descargar: Cada DZ Separada",
+                    data=excel_data_separadas,
+                    file_name=nombre_excel_separadas,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Descarga Excel con métricas de cada DZ como filas separadas en una sola hoja",
+                    use_container_width=True,
+                    key="btn_separadas"
+                )
+        except Exception as e:
+            st.sidebar.error(f"Error al generar Excel separado: {str(e)}")
+
     def mostrar_instrucciones_carga(self, ruta_carpeta: str):
         """
         Muestra instrucciones cuando no hay datos cargados

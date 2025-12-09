@@ -498,7 +498,7 @@ class ExcelFileHandler:
         datos_erroneos = df_variables['Datos_flag_M'].sum()
 
         # MÓDULO: Global
-        metricas_consolidadas.append(["Global", "Disponibilidad Promedio", f"{metricas_globales.get('disponibilidad_promedio', 0):.1f}%", "", dz_seleccionada])
+        metricas_consolidadas.append(["Global", "Disponibilidad Promedio", metricas_globales.get('disponibilidad_promedio', 0), f"{metricas_globales.get('disponibilidad_promedio', 0):.1f}%", dz_seleccionada])
         metricas_consolidadas.append(["Global", "Total Estaciones", metricas_globales.get('total_estaciones', 0), "100.0%", dz_seleccionada])
         metricas_consolidadas.append(["Global", "Estaciones Críticas (<80%)", metricas_globales.get('estaciones_criticas', 0), f"{(metricas_globales.get('estaciones_criticas', 0) / metricas_globales.get('total_estaciones', 1) * 100):.1f}%" if metricas_globales.get('total_estaciones', 0) > 0 else "0%", dz_seleccionada])
         metricas_consolidadas.append(["Global", "Anomalías (>100%)", metricas_globales.get('estaciones_anomalias', 0), "", dz_seleccionada])
@@ -510,7 +510,7 @@ class ExcelFileHandler:
         metricas_consolidadas.append(["Estación", "Estaciones Parcialmente Operativas (>0% y <80%)", parcialmente_est, f"{(parcialmente_est/total_est*100):.1f}%" if total_est > 0 else "0%", dz_seleccionada])
         metricas_consolidadas.append(["Estación", "Estaciones Inoperativas (=0%)", inoperativas_est, f"{(inoperativas_est/total_est*100):.1f}%" if total_est > 0 else "0%", dz_seleccionada])
         metricas_consolidadas.append(["Estación", "Con Incidencias Activas", con_incidencias, f"{(con_incidencias/total_est*100):.1f}%" if total_est > 0 else "0%", dz_seleccionada])
-        metricas_consolidadas.append(["Estación", "Disponibilidad Promedio", f"{disponibilidad_prom_est:.1f}%", "", dz_seleccionada])
+        metricas_consolidadas.append(["Estación", "Disponibilidad Promedio", disponibilidad_prom_est, f"{disponibilidad_prom_est:.1f}%", dz_seleccionada])
 
         # MÓDULO: Sensor
         metricas_consolidadas.append(["Sensor", "Total Sensores", total_sen, "100.0%", dz_seleccionada])
@@ -576,6 +576,152 @@ class ExcelFileHandler:
             worksheet['A1'].font = Font(bold=True, size=14)
             worksheet['A2'] = f"Fecha de generación: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             worksheet['A3'] = f"Filtro DZ: {dz_seleccionada}"
+
+        output.seek(0)
+        return output.getvalue()
+
+    @staticmethod
+    def exportar_metricas_todas_dz_separadas(
+        df_estaciones: pd.DataFrame,
+        df_sensores: pd.DataFrame,
+        df_variables: pd.DataFrame
+    ) -> bytes:
+        """
+        Exporta métricas de TODAS las DZ en formato consolidado, con cada DZ en filas separadas
+
+        Args:
+            df_estaciones: DataFrame de estaciones SIN FILTRAR
+            df_sensores: DataFrame de sensores SIN FILTRAR
+            df_variables: DataFrame de variables SIN FILTRAR
+
+        Returns:
+            Bytes del archivo Excel
+        """
+        from io import BytesIO
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
+        # Obtener lista de DZ únicas
+        dzs_unicas = sorted(df_estaciones['DZ'].unique().tolist())
+
+        # Lista para almacenar todas las métricas
+        metricas_consolidadas = []
+
+        # Procesar cada DZ
+        for dz in dzs_unicas:
+            # Filtrar datos por DZ
+            df_est_dz = df_estaciones[df_estaciones['DZ'] == dz]
+            df_sen_dz = df_sensores[df_sensores['DZ'] == dz]
+            df_var_dz = df_variables[df_variables['DZ'] == dz]
+
+            # Calcular métricas para esta DZ
+            total_est = len(df_est_dz)
+            operativas_est = (df_est_dz['disponibilidad'] >= 80).sum()
+            inoperativas_est = (df_est_dz['disponibilidad'] == 0).sum()
+            parcialmente_est = total_est - operativas_est - inoperativas_est
+
+            if 'estado_inci' in df_est_dz.columns:
+                estados_activos = ['nueva', 'recurrente']
+                con_incidencias = df_est_dz[
+                    df_est_dz['estado_inci'].str.lower().isin(estados_activos)
+                ].shape[0]
+            else:
+                con_incidencias = 0
+
+            disponibilidad_prom_est = df_est_dz['disponibilidad'].mean()
+            estaciones_criticas = (df_est_dz['disponibilidad'] < 80).sum()
+            estaciones_anomalias = (df_est_dz['disponibilidad'] > 100).sum()
+
+            total_sen = len(df_sen_dz)
+            operativos_sen = (df_sen_dz['disponibilidad'] >= 80).sum()
+            inoperativos_sen = (df_sen_dz['disponibilidad'] == 0).sum()
+            parcialmente_sen = total_sen - operativos_sen - inoperativos_sen
+            criticos_sen = (df_sen_dz['disponibilidad'] < 80).sum()
+
+            total_var = len(df_var_dz)
+            datos_esperados = df_var_dz['Datos_esperados'].sum()
+            datos_recibidos = df_var_dz['datos_recibidos'].sum()
+            datos_faltantes = datos_esperados - datos_recibidos
+            datos_erroneos = df_var_dz['Datos_flag_M'].sum()
+
+            # Agregar métricas de esta DZ
+            # MÓDULO: Global
+            metricas_consolidadas.append(["Global", f"Disponibilidad Promedio - {dz}", disponibilidad_prom_est, f"{disponibilidad_prom_est:.1f}%", dz])
+            metricas_consolidadas.append(["Global", f"Total Estaciones - {dz}", total_est, "100.0%", dz])
+            metricas_consolidadas.append(["Global", f"Estaciones Críticas (<80%) - {dz}", estaciones_criticas, f"{(estaciones_criticas/total_est*100):.1f}%" if total_est > 0 else "0%", dz])
+            metricas_consolidadas.append(["Global", f"Anomalías (>100%) - {dz}", estaciones_anomalias, "", dz])
+
+            # MÓDULO: Estación
+            metricas_consolidadas.append(["Estación", f"Total Estaciones - {dz}", total_est, "100.0%", dz])
+            metricas_consolidadas.append(["Estación", f"Estaciones Operativas (≥80%) - {dz}", operativas_est, f"{(operativas_est/total_est*100):.1f}%" if total_est > 0 else "0%", dz])
+            metricas_consolidadas.append(["Estación", f"Estaciones Parcialmente Operativas (>0% y <80%) - {dz}", parcialmente_est, f"{(parcialmente_est/total_est*100):.1f}%" if total_est > 0 else "0%", dz])
+            metricas_consolidadas.append(["Estación", f"Estaciones Inoperativas (=0%) - {dz}", inoperativas_est, f"{(inoperativas_est/total_est*100):.1f}%" if total_est > 0 else "0%", dz])
+            metricas_consolidadas.append(["Estación", f"Con Incidencias Activas - {dz}", con_incidencias, f"{(con_incidencias/total_est*100):.1f}%" if total_est > 0 else "0%", dz])
+            metricas_consolidadas.append(["Estación", f"Disponibilidad Promedio - {dz}", disponibilidad_prom_est, f"{disponibilidad_prom_est:.1f}%", dz])
+
+            # MÓDULO: Sensor
+            metricas_consolidadas.append(["Sensor", f"Total Sensores - {dz}", total_sen, "100.0%", dz])
+            metricas_consolidadas.append(["Sensor", f"Sensores Operativos (≥80%) - {dz}", operativos_sen, f"{(operativos_sen/total_sen*100):.1f}%" if total_sen > 0 else "0%", dz])
+            metricas_consolidadas.append(["Sensor", f"Sensores Parcialmente Operativos (>0% y <80%) - {dz}", parcialmente_sen, f"{(parcialmente_sen/total_sen*100):.1f}%" if total_sen > 0 else "0%", dz])
+            metricas_consolidadas.append(["Sensor", f"Sensores Inoperativos (=0%) - {dz}", inoperativos_sen, f"{(inoperativos_sen/total_sen*100):.1f}%" if total_sen > 0 else "0%", dz])
+            metricas_consolidadas.append(["Sensor", f"Críticos (<80%) - {dz}", criticos_sen, f"{(criticos_sen/total_sen*100):.1f}%" if total_sen > 0 else "0%", dz])
+
+            # MÓDULO: Variable
+            metricas_consolidadas.append(["Variable", f"Total Variables Registradas - {dz}", total_var, "", dz])
+            metricas_consolidadas.append(["Variable", f"Datos Esperados - {dz}", datos_esperados, "100.0%", dz])
+            metricas_consolidadas.append(["Variable", f"Datos Recibidos - {dz}", datos_recibidos, f"{(datos_recibidos/datos_esperados*100):.1f}%" if datos_esperados > 0 else "0%", dz])
+            metricas_consolidadas.append(["Variable", f"Datos Faltantes - {dz}", datos_faltantes, f"{(datos_faltantes/datos_esperados*100):.1f}%" if datos_esperados > 0 else "0%", dz])
+            metricas_consolidadas.append(["Variable", f"Datos Erróneos (Flag M) - {dz}", datos_erroneos, f"{(datos_erroneos/datos_recibidos*100):.1f}%" if datos_recibidos > 0 else "0%", dz])
+
+        # Crear DataFrame consolidado
+        df_consolidado = pd.DataFrame(
+            metricas_consolidadas,
+            columns=["Módulo", "Métrica", "Valor", "Porcentaje", "DZ"]
+        )
+
+        # Exportar a Excel con formato
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_consolidado.to_excel(writer, sheet_name='Todas las DZ', index=False)
+
+            # Obtener workbook y worksheet
+            workbook = writer.book
+            worksheet = writer.sheets['Todas las DZ']
+
+            # Estilos
+            header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF", size=11)
+            border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            # Aplicar estilos al encabezado
+            for cell in worksheet[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = border
+
+            # Aplicar bordes a todas las celdas
+            for row in worksheet.iter_rows(min_row=2, max_row=worksheet.max_row, min_col=1, max_col=5):
+                for cell in row:
+                    cell.border = border
+
+            # Ajustar ancho de columnas
+            worksheet.column_dimensions['A'].width = 15  # Módulo
+            worksheet.column_dimensions['B'].width = 55  # Métrica
+            worksheet.column_dimensions['C'].width = 20  # Valor
+            worksheet.column_dimensions['D'].width = 15  # Porcentaje
+            worksheet.column_dimensions['E'].width = 20  # DZ
+
+            # Agregar metadata en las primeras filas
+            worksheet.insert_rows(1, 3)
+            worksheet['A1'] = "Dashboard Meteorológico SGR - Métricas de Todas las DZ"
+            worksheet['A1'].font = Font(bold=True, size=14)
+            worksheet['A2'] = f"Fecha de generación: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+            worksheet['A3'] = f"Total de DZ incluidas: {len(dzs_unicas)}"
 
         output.seek(0)
         return output.getvalue()
