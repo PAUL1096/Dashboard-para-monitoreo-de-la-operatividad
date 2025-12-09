@@ -275,8 +275,14 @@ class UIComponents:
         inoperativas = (df_estaciones['disponibilidad'] == 0).sum()
         parcialmente_operativas = total_estaciones - operativas - inoperativas
 
-        # Calcular estaciones con incidencias (tienen prioridad asignada)
-        con_incidencias = df_estaciones['prioridad'].notna().sum()
+        # Calcular estaciones con incidencias activas (Nueva o Recurrente)
+        if 'estado_inci' in df_estaciones.columns:
+            estados_activos = ['nueva', 'recurrente']
+            con_incidencias = df_estaciones[
+                df_estaciones['estado_inci'].str.lower().isin(estados_activos)
+            ].shape[0]
+        else:
+            con_incidencias = 0
 
         # Disponibilidad promedio
         disponibilidad_promedio = df_estaciones['disponibilidad'].mean()
@@ -291,22 +297,46 @@ class UIComponents:
         col1, col2, col3, col4, col5, col6 = st.columns(6)
 
         with col1:
-            st.metric("Total Estaciones", total_estaciones)
+            st.metric(
+                "Total Estaciones",
+                total_estaciones,
+                help="Número total de estaciones meteorológicas en la red"
+            )
 
         with col2:
-            st.metric("Operativas", f"{operativas} ({pct_operativas:.1f}%)")
+            st.metric(
+                "Estaciones Operativas",
+                f"{operativas} ({pct_operativas:.1f}%)",
+                help="Estaciones con disponibilidad ≥80%"
+            )
 
         with col3:
-            st.metric("Parcialmente Operativas", f"{parcialmente_operativas} ({pct_parcial:.1f}%)")
+            st.metric(
+                "Estaciones Parcialmente Operativas",
+                f"{parcialmente_operativas} ({pct_parcial:.1f}%)",
+                help="Estaciones con disponibilidad >0% y <80%"
+            )
 
         with col4:
-            st.metric("Inoperativas", f"{inoperativas} ({pct_inoperativas:.1f}%)")
+            st.metric(
+                "Estaciones Inoperativas",
+                f"{inoperativas} ({pct_inoperativas:.1f}%)",
+                help="Estaciones con disponibilidad = 0%"
+            )
 
         with col5:
-            st.metric("Con Incidencias", f"{con_incidencias} ({pct_incidencias:.1f}%)")
+            st.metric(
+                "Con Incidencias Activas",
+                f"{con_incidencias} ({pct_incidencias:.1f}%)",
+                help="Estaciones con incidencias en estado 'Nueva' o 'Recurrente' (sin solución)"
+            )
 
         with col6:
-            st.metric("Disponibilidad Promedio", f"{disponibilidad_promedio:.1f}%")
+            st.metric(
+                "Disponibilidad Promedio",
+                f"{disponibilidad_promedio:.1f}%",
+                help="Promedio de disponibilidad de todas las estaciones"
+            )
 
         st.markdown("---")
 
@@ -444,19 +474,39 @@ class UIComponents:
         col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
-            st.metric("Total Sensores", total_sensores)
+            st.metric(
+                "Total Sensores",
+                total_sensores,
+                help="Número total de sensores/equipamientos en la red"
+            )
 
         with col2:
-            st.metric("Operativos", f"{operativos} ({pct_op:.1f}%)")
+            st.metric(
+                "Sensores Operativos",
+                f"{operativos} ({pct_op:.1f}%)",
+                help="Sensores con disponibilidad ≥80%"
+            )
 
         with col3:
-            st.metric("Parcialmente Operativos", f"{parcialmente_operativos} ({pct_parcial:.1f}%)")
+            st.metric(
+                "Sensores Parcialmente Operativos",
+                f"{parcialmente_operativos} ({pct_parcial:.1f}%)",
+                help="Sensores con disponibilidad >0% y <80%"
+            )
 
         with col4:
-            st.metric("Inoperativos", f"{inoperativos} ({pct_inop:.1f}%)")
+            st.metric(
+                "Sensores Inoperativos",
+                f"{inoperativos} ({pct_inop:.1f}%)",
+                help="Sensores con disponibilidad = 0%"
+            )
 
         with col5:
-            st.metric("Críticos", criticos)
+            st.metric(
+                "Críticos",
+                criticos,
+                help="Sensores con disponibilidad <80% (incluye parcialmente operativos e inoperativos)"
+            )
         
         st.markdown("---")
         
@@ -524,19 +574,39 @@ class UIComponents:
         col1, col2, col3, col4, col5 = st.columns(5)
 
         with col1:
-            st.metric("Total Variables Registradas", total_variables)
+            st.metric(
+                "Total Variables Registradas",
+                total_variables,
+                help="Número total de registros de variables meteorológicas"
+            )
 
         with col2:
-            st.metric("Datos Esperados", f"{datos_esperados:,}")
+            st.metric(
+                "Datos Esperados",
+                f"{datos_esperados:,}",
+                help="Cantidad total de datos que deberían haberse recibido según la frecuencia de medición"
+            )
 
         with col3:
-            st.metric("Datos Recibidos", f"{datos_recibidos:,} ({pct_recibidos:.1f}%)")
+            st.metric(
+                "Datos Recibidos",
+                f"{datos_recibidos:,} ({pct_recibidos:.1f}%)",
+                help="Cantidad de datos efectivamente recibidos (porcentaje sobre datos esperados)"
+            )
 
         with col4:
-            st.metric("Datos Faltantes", f"{datos_faltantes:,} ({pct_faltantes:.1f}%)")
+            st.metric(
+                "Datos Faltantes",
+                f"{datos_faltantes:,} ({pct_faltantes:.1f}%)",
+                help="Datos no recibidos = Esperados - Recibidos (porcentaje sobre datos esperados)"
+            )
 
         with col5:
-            st.metric("Datos Erróneos (Flag M)", f"{datos_erroneos:,} ({pct_erroneos:.1f}%)")
+            st.metric(
+                "Datos Erróneos (Flag M)",
+                f"{datos_erroneos:,} ({pct_erroneos:.1f}%)",
+                help="Datos que superan umbrales operacionales SGR (porcentaje sobre datos recibidos)"
+            )
         
         st.markdown("---")
         
