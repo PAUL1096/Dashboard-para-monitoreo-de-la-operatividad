@@ -385,20 +385,20 @@ class ChartBuilder:
         df_filtrado = df_filtrado.copy()
         df_filtrado['color'] = df_filtrado['disponibilidad'].apply(asignar_color)
 
-        # Ordenar DZ alfabéticamente para consistencia
-        dzs_ordenadas = sorted(df_filtrado['DZ'].unique())
+        # Ordenar DZ alfabéticamente para consistencia y convertir a string
+        dzs_ordenadas = sorted([str(dz) for dz in df_filtrado['DZ'].unique()])
 
         # Crear figura
         fig = go.Figure()
 
         # Agregar boxplot para cada DZ
         for dz in dzs_ordenadas:
-            df_dz = df_filtrado[df_filtrado['DZ'] == dz]
+            df_dz = df_filtrado[df_filtrado['DZ'].astype(str) == dz]
 
             # Boxplot (sin mostrar puntos, los agregamos manualmente)
             fig.add_trace(go.Box(
                 y=df_dz['disponibilidad'],
-                name=dz,
+                name=str(dz),  # Asegurar que sea string
                 boxmean='sd',  # Mostrar media y desviación estándar
                 marker_color='lightgray',
                 line_color='gray',
@@ -409,11 +409,11 @@ class ChartBuilder:
 
         # Agregar puntos individuales coloreados por disponibilidad
         for dz in dzs_ordenadas:
-            df_dz = df_filtrado[df_filtrado['DZ'] == dz]
+            df_dz = df_filtrado[df_filtrado['DZ'].astype(str) == dz]
 
             for _, row in df_dz.iterrows():
                 fig.add_trace(go.Scatter(
-                    x=[dz],
+                    x=[str(dz)],  # Asegurar que sea string
                     y=[row['disponibilidad']],
                     mode='markers',
                     marker=dict(
