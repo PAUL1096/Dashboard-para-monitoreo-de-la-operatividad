@@ -526,7 +526,48 @@ class UIComponents:
         tipo_stats = preparar_stats_tipo_sensor(df_sensores)
         fig_tipo = self.chart_builder.crear_barras_tipo_sensor(tipo_stats)
         st.plotly_chart(fig_tipo, use_container_width=True)
-        
+
+        # Análisis de sensor específico por DZ (nuevo gráfico boxplot)
+        st.markdown("---")
+        st.subheader("📍 Análisis de Sensor Específico por DZ")
+
+        # Calcular disponibilidad promedio por tipo de sensor (ordenar de menor a mayor)
+        sensor_disp_promedio = df_sensores.groupby('Sensor')['disponibilidad'].mean().sort_values()
+        sensores_disponibles = sensor_disp_promedio.index.tolist()
+
+        # Verificar que hay columnas necesarias para el gráfico
+        if 'Estacion' in df_sensores.columns and 'DZ' in df_sensores.columns and len(sensores_disponibles) > 0:
+            # Selector de sensor (ordenado por disponibilidad promedio, menor a mayor)
+            sensor_seleccionado = st.selectbox(
+                "Selecciona un sensor/equipamiento:",
+                options=sensores_disponibles,
+                index=0,  # Por defecto el de menor disponibilidad (primero en la lista)
+                help="Sensores ordenados por disponibilidad promedio (de menor a mayor). Los primeros son los más problemáticos."
+            )
+
+            # Filtrar datos por sensor seleccionado
+            df_sensor_filtrado = df_sensores[df_sensores['Sensor'] == sensor_seleccionado].copy()
+
+            # Verificar que hay datos para mostrar
+            if len(df_sensor_filtrado) > 0:
+                # Crear y mostrar gráfico
+                fig_boxplot_dz = self.chart_builder.crear_boxplot_sensor_por_dz(
+                    df_sensor_filtrado,
+                    sensor_seleccionado
+                )
+                st.plotly_chart(fig_boxplot_dz, use_container_width=True)
+
+                # Información adicional
+                st.info(
+                    f"📊 **{len(df_sensor_filtrado)} estaciones** monitoreadas con sensor **{sensor_seleccionado}**. "
+                    f"Los puntos coloreados representan estaciones individuales. "
+                    f"🟢 Verde (≥80%), 🟠 Naranja (30-80%), 🔴 Rojo (<30%), ⚫ Gris (0%)"
+                )
+            else:
+                st.warning(f"No hay datos disponibles para el sensor: {sensor_seleccionado}")
+        else:
+            st.warning("No hay datos suficientes para generar el análisis por sensor específico.")
+
         # Tabla completa
         st.subheader("📋 Tabla Completa de Sensores")
         st.dataframe(

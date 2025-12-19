@@ -353,9 +353,107 @@ class ChartBuilder:
             xaxis_title="Disponibilidad Promedio (%)",
             yaxis_title="Tipo de Sensor"
         )
-        
+
         return fig
-    
+
+    @staticmethod
+    def crear_boxplot_sensor_por_dz(df_filtrado: pd.DataFrame, sensor_seleccionado: str) -> go.Figure:
+        """
+        Crea boxplot de disponibilidad de un sensor específico por DZ con puntos individuales
+
+        Args:
+            df_filtrado: DataFrame filtrado por sensor con columnas: Estacion, DZ, disponibilidad
+            sensor_seleccionado: Nombre del sensor seleccionado para el título
+
+        Returns:
+            Figura de Plotly con boxplot y puntos de estaciones
+        """
+        # Función para asignar color según disponibilidad
+        def asignar_color(disp):
+            if disp > 100:
+                return '#F843CE'  # Magenta
+            elif 80 <= disp <= 100:
+                return '#129F16'  # Verde
+            elif 30 <= disp < 80:
+                return '#F89F16'  # Naranja
+            elif 0 < disp < 30:
+                return '#F84316'  # Rojo
+            else:  # disp == 0
+                return '#999C9D'  # Gris
+
+        # Asignar colores a cada punto
+        df_filtrado = df_filtrado.copy()
+        df_filtrado['color'] = df_filtrado['disponibilidad'].apply(asignar_color)
+
+        # Ordenar DZ alfabéticamente para consistencia
+        dzs_ordenadas = sorted(df_filtrado['DZ'].unique())
+
+        # Crear figura
+        fig = go.Figure()
+
+        # Agregar boxplot para cada DZ
+        for dz in dzs_ordenadas:
+            df_dz = df_filtrado[df_filtrado['DZ'] == dz]
+
+            # Boxplot (sin mostrar puntos, los agregamos manualmente)
+            fig.add_trace(go.Box(
+                y=df_dz['disponibilidad'],
+                name=dz,
+                boxmean='sd',  # Mostrar media y desviación estándar
+                marker_color='lightgray',
+                line_color='gray',
+                fillcolor='rgba(200, 200, 200, 0.3)',
+                showlegend=False,
+                hoverinfo='skip'  # No mostrar hover del boxplot
+            ))
+
+        # Agregar puntos individuales coloreados por disponibilidad
+        for dz in dzs_ordenadas:
+            df_dz = df_filtrado[df_filtrado['DZ'] == dz]
+
+            for _, row in df_dz.iterrows():
+                fig.add_trace(go.Scatter(
+                    x=[dz],
+                    y=[row['disponibilidad']],
+                    mode='markers',
+                    marker=dict(
+                        size=8,
+                        color=row['color'],
+                        line=dict(width=1, color='white')
+                    ),
+                    hovertemplate=(
+                        f"<b>{row['Estacion']}</b><br>"
+                        f"Disponibilidad: {row['disponibilidad']:.1f}%<br>"
+                        "<extra></extra>"
+                    ),
+                    showlegend=False
+                ))
+
+        # Configurar layout
+        fig.update_layout(
+            title=f'Distribución de Disponibilidad: {sensor_seleccionado} por DZ',
+            xaxis_title='Dirección Zonal',
+            yaxis_title='Disponibilidad (%)',
+            height=500,
+            hovermode='closest',
+            plot_bgcolor='white',
+            yaxis=dict(
+                gridcolor='lightgray',
+                range=[-5, max(df_filtrado['disponibilidad'].max() + 10, 105)]
+            )
+        )
+
+        # Agregar línea de umbral crítico
+        fig.add_hline(
+            y=config.THRESHOLD_CRITICAL,
+            line_dash='dash',
+            line_color='red',
+            annotation_text=f'Umbral Crítico ({config.THRESHOLD_CRITICAL}%)',
+            annotation_position='right'
+        )
+
+        return fig
+
     # ========================================================================
     # GRÁFICOS DE VARIABLES
     # ========================================================================
