@@ -2,8 +2,8 @@
 main.py
 Dashboard Interactivo para Monitoreo de Disponibilidad de Red Meteorológica
 Autor: Sistema de Monitoreo Meteorológico - SGR
-Versión: 2.1 (Refactorizado)
-Fecha: Noviembre 2025
+Versión: 2.2 (Mejoras Críticas)
+Fecha: Diciembre 2025
 
 Punto de entrada principal de la aplicación
 """
