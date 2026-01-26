@@ -1,7 +1,7 @@
 """
 config.py
 Configuración centralizada del Dashboard Meteorológico SGR
-Versión: 2.1
+Versión: 2.2
 """
 
 from dataclasses import dataclass
@@ -19,7 +19,7 @@ class AppConfig:
     # Información de la aplicación
     APP_TITLE: str = "Dashboard Meteorológico SGR"
     APP_ICON: str = "🌦️"
-    VERSION: str = "2.1"
+    VERSION: str = "2.2"
     AUTHOR: str = "Sistema de Monitoreo Meteorológico - SGR"
     
     # Configuración de Streamlit
