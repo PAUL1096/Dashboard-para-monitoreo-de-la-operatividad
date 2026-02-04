@@ -215,27 +215,29 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         EC.presence_of_element_located((By.ID, dropdown_id))
     )
 
-    # Buscar el input dentro del dropdown (para dropdowns searchable)
-    # Estructura: div#dz-select > div.Select > div.Select-control > div.Select-input > input
+    # Primero hacer click en Select-control para abrir el dropdown
+    # (el input está oculto detrás del placeholder)
+    try:
+        select_control = dropdown_container.find_element(By.CLASS_NAME, "Select-control")
+        select_control.click()
+        time.sleep(0.5)
+    except NoSuchElementException:
+        dropdown_container.click()
+        time.sleep(0.5)
+
+    # Ahora buscar el input (que debería estar activo después del click)
     try:
         dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "input[role='combobox']")
     except NoSuchElementException:
         try:
-            dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, ".Select-input input")
+            dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
         except NoSuchElementException:
-            try:
-                dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
-            except NoSuchElementException:
-                # Si no hay input, hacer click en Select-control
-                dropdown_input = dropdown_container.find_element(By.CLASS_NAME, "Select-control")
+            dropdown_input = None
 
-    # Hacer click para activar/abrir el dropdown
-    dropdown_input.click()
-    time.sleep(0.5)
-
-    # Escribir el valor para filtrar las opciones
-    dropdown_input.send_keys(valor)
-    time.sleep(1)  # Esperar a que se filtren las opciones
+    # Escribir el valor para filtrar las opciones (si encontramos el input)
+    if dropdown_input:
+        dropdown_input.send_keys(valor)
+        time.sleep(1)  # Esperar a que se filtren las opciones
 
     # Buscar las opciones que aparecen
     # Las opciones están en div.Select-menu > div.Select-menu-outer > div.Select-option
@@ -280,10 +282,11 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         return
 
     # Si no aparecieron opciones, intentar presionar flecha abajo + Enter
-    dropdown_input.send_keys(Keys.ARROW_DOWN)
-    time.sleep(0.3)
-    dropdown_input.send_keys(Keys.ENTER)
-    time.sleep(DELAY_ENTRE_ACCIONES)
+    if dropdown_input:
+        dropdown_input.send_keys(Keys.ARROW_DOWN)
+        time.sleep(0.3)
+        dropdown_input.send_keys(Keys.ENTER)
+        time.sleep(DELAY_ENTRE_ACCIONES)
 
 
 def seleccionar_fecha_dash(driver, placeholder: str, fecha: datetime, timeout: int = 10):
