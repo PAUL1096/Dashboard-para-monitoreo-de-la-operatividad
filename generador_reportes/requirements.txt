@@ -1,0 +1,16 @@
+# Requisitos para el módulo generador_reportes
+# Instalar con: pip install -r requirements.txt
+
+# Descarga automática de reportes (descargar_reportes.py)
+selenium>=4.15.0
+
+# Extracción de datos de PDFs (00_extraccion_pdf.py)
+pdfplumber>=0.10.0
+
+# Procesamiento de datos (01_procesamiento.py, 02_postproceso.py)
+pandas>=2.0.0
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+
+# Opcional: para modo headless sin interfaz gráfica
+# webdriver-manager>=4.0.0  # Gestión automática de ChromeDriver

@@ -5,24 +5,24 @@ Este módulo contiene los scripts para generar los reportes Excel que consume el
 ## Flujo de Generación de Reportes
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                          FLUJO DE GENERACIÓN DE REPORTES                            │
-└─────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                               FLUJO DE GENERACIÓN DE REPORTES                                        │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-│   PASO 1-3       │     │     PASO 4       │     │     PASO 5       │     │     PASO 6       │
-│    (Manual)      │────▶│ 00_extraccion    │────▶│ 01_procesamiento │────▶│ 02_postproceso   │
-│                  │     │                  │     │                  │     │                  │
-│ Descargar PDFs   │     │ PDFs → CSV       │     │ CSV → Excel      │     │ Consolidar       │
-│ de herramienta   │     │ (disponibilidad  │     │ (3 hojas)        │     │ con histórico    │
-│                  │     │  y fallas)       │     │                  │     │                  │
-└──────────────────┘     └──────────────────┘     └──────────────────┘     └──────────────────┘
-        │                        │                        │                        │
-        ▼                        ▼                        ▼                        ▼
-   input_pdfs/              output/                  output/                  ../reportes/
-   ├── Reporte_DZ_1.pdf     ├── disponibilidad_*.csv ├── reporte_disp_*.xlsx  └── reporte_consolidado.xlsx
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+│   PASO 1-3       │     │     PASO 4       │     │     PASO 5       │     │     PASO 6       │     │     PASO 7       │
+│  (Automatizado)  │────▶│ 00_extraccion    │────▶│ 01_procesamiento │────▶│ 02_postproceso   │────▶│    Dashboard     │
+│                  │     │                  │     │                  │     │                  │     │                  │
+│ descargar_       │     │ PDFs → CSV       │     │ CSV → Excel      │     │ Consolidar       │     │ Visualización    │
+│ reportes.py      │     │ (disponibilidad  │     │ (3 hojas)        │     │ con histórico    │     │ Streamlit        │
+│ (Selenium)       │     │  y fallas)       │     │                  │     │                  │     │                  │
+└──────────────────┘     └──────────────────┘     └──────────────────┘     └──────────────────┘     └──────────────────┘
+        │                        │                        │                        │                        │
+        ▼                        ▼                        ▼                        ▼                        ▼
+   input_pdfs/              output/                  output/                  ../reportes/             localhost:8501
+   ├── Reporte_DZ_1.pdf     ├── disponibilidad_*.csv ├── reporte_disp_*.xlsx  └── consolidado.xlsx     main.py
    ├── Reporte_DZ_2.pdf     └── fallas_*.csv
-   └── ...
+   └── ... (13 DZs)
 ```
 
 ---
@@ -32,12 +32,14 @@ Este módulo contiene los scripts para generar los reportes Excel que consume el
 ```
 generador_reportes/
 ├── README.md                    # Esta documentación
+├── requirements.txt            # Dependencias Python
+├── descargar_reportes.py       # [NUEVO] Descarga automática desde SISMOP
 ├── 00_extraccion_pdf.py        # Extrae datos de PDFs → CSV
 ├── 01_procesamiento.py         # Procesa CSV → Excel (3 hojas)
 ├── 02_postproceso.py           # Consolida reportes (comparación temporal)
 ├── data/
 │   └── variables_frecuencia.xlsx  # Frecuencias de medición por variable
-├── input_pdfs/                 # PDFs descargados de la herramienta
+├── input_pdfs/                 # PDFs descargados de SISMOP
 │   ├── Reporte_DZ_1.pdf       # Ejemplo de PDF de entrada
 │   └── .gitkeep
 └── output/                     # Archivos intermedios y de salida
@@ -47,6 +49,57 @@ generador_reportes/
 ---
 
 ## Scripts Detallados
+
+### Paso 1-3: `descargar_reportes.py` - Descarga Automática de PDFs
+
+**Descripción:** Automatiza la descarga de reportes PDF desde SISMOP(A)-SGR usando Selenium.
+
+**Requisitos:**
+- Python 3.8+
+- Selenium: `pip install selenium`
+- Google Chrome instalado
+- ChromeDriver en PATH (o usar webdriver-manager)
+- **Acceso a la red local** donde está SISMOP (172.25.150.27)
+
+**Características:**
+- Descarga automática de las 13 Direcciones Zonales
+- Selección inteligente de fechas (viernes a viernes)
+- Renombrado automático de archivos descargados
+- Soporte para período de 7 días (monitoreo) o 30 días (boletín)
+
+**Uso básico:**
+```bash
+# Instalar dependencias
+pip install -r requirements.txt
+
+# Descargar todas las DZs (últimos 7 días)
+python descargar_reportes.py
+
+# Descargar DZs específicas
+python descargar_reportes.py --dz 1 5 9
+
+# Período de 30 días (para boletín)
+python descargar_reportes.py --dias 30
+
+# Fecha fin específica
+python descargar_reportes.py --fecha-fin 2025-12-12
+
+# Ver ayuda completa
+python descargar_reportes.py --help
+```
+
+**Configuración:**
+El script tiene variables configurables al inicio:
+```python
+SISMOP_URL = "http://172.25.150.27:8050/"  # URL del sistema
+TOTAL_DZS = 13                              # Número de Direcciones Zonales
+TIMEOUT_CARGA_DATOS = 120                   # Timeout para carga de datos (seg)
+TIMEOUT_GENERACION_REPORTE = 180            # Timeout para generación PDF (seg)
+```
+
+**Nota:** Los IDs de elementos HTML deben ajustarse según la estructura real de SISMOP. Ver sección "Configuración de Selectores".
+
+---
 
 ### Paso 4: `00_extraccion_pdf.py` - Extracción de PDFs
 
@@ -190,31 +243,55 @@ Contiene las frecuencias de medición correctas para cada combinación DZ/Estaci
 
 ## Ejecución Completa
 
-```bash
-# 1. Descargar PDFs de la herramienta interna (manual)
-#    - Seleccionar cada DZ
-#    - Período: 7 días
-#    - Guardar en input_pdfs/
+### Opción A: Descarga Automática (Recomendado)
 
-# 2. Extraer datos de PDFs
+```bash
 cd generador_reportes
+
+# 1. Instalar dependencias (solo primera vez)
+pip install -r requirements.txt
+
+# 2. Descargar PDFs automáticamente (ejecutar desde PC con acceso a red SISMOP)
+python descargar_reportes.py
+# Descarga las 13 DZs al directorio input_pdfs/
+
+# 3. Extraer datos de PDFs
 python 00_extraccion_pdf.py
 # Tipo: automatica
 # Fechas: según período descargado
 
-# 3. Procesar y calcular disponibilidad
+# 4. Procesar y calcular disponibilidad
 python 01_procesamiento.py
 
-# 4. Consolidar con reporte anterior (si existe)
+# 5. Consolidar con reporte anterior (si existe)
 python 02_postproceso.py
 # Ingresa rutas de reportes y fecha
 
-# 5. Copiar reporte consolidado a ../reportes/
+# 6. Copiar reporte consolidado a ../reportes/
 cp reporte_disponibilidad_consolidado.xlsx ../reportes/
 
-# 6. Abrir Dashboard
+# 7. Abrir Dashboard
 cd ..
 streamlit run main.py
+```
+
+### Opción B: Descarga Manual (alternativa)
+
+```bash
+cd generador_reportes
+
+# 1. Descargar PDFs manualmente desde SISMOP
+#    - Acceder a http://172.25.150.27:8050/
+#    - Seleccionar AUTOMATICA
+#    - Para cada DZ (1-13):
+#      - Seleccionar DZ
+#      - Seleccionar rango de fechas (viernes a viernes)
+#      - Click "CONSULTAR RANGO DE FECHAS"
+#      - Esperar carga de datos
+#      - Click "GENERAR REPORTE POR DZ"
+#    - Guardar PDFs en input_pdfs/
+
+# 2-6. Continuar con pasos 3-7 de Opción A
 ```
 
 ---
@@ -269,9 +346,31 @@ pip install pdfplumber xlsxwriter
 
 ## TODO para Automatización Futura
 
-- [ ] Automatizar descarga de PDFs si hay API disponible
-- [ ] Crear pipeline que ejecute los 3 scripts en secuencia
+- [x] ~~Automatizar descarga de PDFs~~ → `descargar_reportes.py` (Selenium)
+- [ ] Crear pipeline que ejecute todos los scripts en secuencia
 - [ ] Añadir validación de datos entre pasos
 - [ ] Crear tests unitarios
 - [ ] Implementar logging estructurado
 - [ ] Añadir notificaciones por email de alertas críticas
+- [ ] Modo headless para ejecución programada (cron/scheduler)
+
+---
+
+## Configuración de Selectores SISMOP
+
+El script `descargar_reportes.py` necesita los IDs correctos de los elementos HTML de SISMOP.
+Los IDs actuales son estimados y deben verificarse:
+
+| Elemento | ID Actual (estimado) | Descripción |
+|----------|---------------------|-------------|
+| Dropdown DZ | `dropdown-dz` | Selector de Dirección Zonal |
+| Fecha inicio | `date-picker-inicio` | Input de fecha inicio |
+| Fecha fin | `date-picker-fin` | Input de fecha fin |
+| Botón consultar | (por texto) | "CONSULTAR RANGO DE FECHAS" |
+| Botón reporte | (por texto) | "GENERAR REPORTE POR DZ" |
+
+**Para obtener los IDs reales:**
+1. Abrir SISMOP en Chrome
+2. Click derecho en el elemento → "Inspeccionar"
+3. Buscar el atributo `id` del elemento
+4. Actualizar las funciones en `descargar_reportes.py`
