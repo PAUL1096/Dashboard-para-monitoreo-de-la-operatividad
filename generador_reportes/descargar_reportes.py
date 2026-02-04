@@ -140,7 +140,9 @@ def configurar_chrome(directorio_descargas: Path) -> webdriver.Chrome:
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
         "plugins.always_open_pdf_externally": True,  # Descargar PDFs en lugar de abrirlos
-        "safebrowsing.enabled": True
+        "safebrowsing.enabled": False,  # Deshabilitar safebrowsing para evitar bloqueo
+        "safebrowsing.disable_download_protection": True,  # Permitir descargas "inseguras"
+        "profile.default_content_setting_values.automatic_downloads": 1,  # Permitir múltiples descargas
     }
     chrome_options.add_experimental_option("prefs", prefs)
 
@@ -149,6 +151,8 @@ def configurar_chrome(directorio_descargas: Path) -> webdriver.Chrome:
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-web-security")  # Permitir descargas HTTP
+    chrome_options.add_argument("--allow-running-insecure-content")  # Permitir contenido HTTP
 
     # Descomentar para modo headless (sin ventana visible)
     # chrome_options.add_argument("--headless")
@@ -158,6 +162,53 @@ def configurar_chrome(directorio_descargas: Path) -> webdriver.Chrome:
     driver.implicitly_wait(10)
 
     return driver
+
+
+def manejar_dialogo_descarga(driver, timeout: int = 5):
+    """
+    Intenta manejar el diálogo de descarga de Chrome que aparece para sitios HTTP.
+
+    Chrome muestra "Se bloqueó una descarga no segura" con botón "Conservar".
+
+    Args:
+        driver: Instancia de WebDriver
+        timeout: Tiempo máximo de espera para el diálogo
+    """
+    try:
+        # El diálogo de descarga de Chrome es una notificación del navegador
+        # Intentar encontrar y hacer click en "Conservar" o "Keep"
+        wait = WebDriverWait(driver, timeout)
+
+        # Buscar el botón "Conservar" o "Keep" en la barra de descargas
+        botones_conservar = [
+            "//button[contains(text(), 'Conservar')]",
+            "//button[contains(text(), 'Keep')]",
+            "//button[contains(text(), 'Mantener')]",
+            "//*[contains(text(), 'Conservar')]",
+            "//*[contains(text(), 'Keep')]"
+        ]
+
+        for xpath in botones_conservar:
+            try:
+                boton = driver.find_element(By.XPATH, xpath)
+                if boton.is_displayed():
+                    boton.click()
+                    time.sleep(1)
+                    return True
+            except:
+                pass
+
+        # Si no encontramos el botón, intentar con JavaScript para cerrar alertas
+        try:
+            driver.switch_to.alert.accept()
+            return True
+        except:
+            pass
+
+    except:
+        pass
+
+    return False
 
 
 def esperar_descarga_completa(directorio: Path, timeout: int = 180) -> bool:
@@ -538,26 +589,25 @@ def descargar_reportes_dz(
 
             try:
                 # 1. Seleccionar la DZ
-                print(f"  [1/6] Seleccionando DZ {dz_num}...")
+                print(f"  [1/5] Seleccionando DZ {dz_num}...")
                 seleccionar_dropdown_dash(driver, ID_DROPDOWN_DZ, f"DZ {dz_num}")
                 time.sleep(1)  # Esperar a que se actualice el dropdown de estaciones
 
                 # 2. Seleccionar una estación (la primera disponible)
                 # Esto es necesario para que carguen los datos
-                print(f"  [2/6] Seleccionando primera estación disponible...")
+                print(f"  [2/5] Seleccionando primera estación disponible...")
                 seleccionar_primera_opcion_dropdown(driver, ID_DROPDOWN_ESTACION)
 
                 # 3. Seleccionar fecha de inicio (usando placeholder "Start Date")
-                print(f"  [3/6] Configurando fecha inicio: {fecha_inicio.strftime('%d/%m/%Y')}...")
+                print(f"  [3/5] Configurando fecha inicio: {fecha_inicio.strftime('%d/%m/%Y')}...")
                 seleccionar_fecha_dash(driver, "Start Date", fecha_inicio)
 
                 # 4. Seleccionar fecha fin (usando placeholder "End Date")
-                print(f"  [4/6] Configurando fecha fin: {fecha_fin_sismop.strftime('%d/%m/%Y')}...")
+                print(f"  [4/5] Configurando fecha fin: {fecha_fin_sismop.strftime('%d/%m/%Y')}...")
                 seleccionar_fecha_dash(driver, "End Date", fecha_fin_sismop)
 
-                # 5. Click en consultar rango de fechas
-                print("  [5/6] Consultando rango de fechas...")
-                hacer_click_boton(driver, boton_id=ID_BOTON_CONSULTAR)
+                # NOTA: NO hacer click en "CONSULTAR RANGO DE FECHAS" porque cambia el período a 30 días
+                # Los datos cargan automáticamente al seleccionar las fechas
 
                 # Esperar carga de datos
                 print("  [    ] Esperando carga de datos...")
@@ -566,9 +616,13 @@ def descargar_reportes_dz(
                     reportes_fallidos.append(dz_num)
                     continue
 
-                # 6. Generar y descargar reporte
-                print("  [6/6] Generando reporte PDF...")
+                # 5. Generar y descargar reporte
+                print("  [5/5] Generando reporte PDF...")
                 hacer_click_boton(driver, boton_id=ID_BOTON_REPORTE)
+
+                # Intentar manejar el diálogo de descarga de Chrome si aparece
+                time.sleep(2)  # Esperar a que aparezca el diálogo
+                manejar_dialogo_descarga(driver)
 
                 # Esperar descarga
                 print("  [    ] Esperando descarga del PDF...")
