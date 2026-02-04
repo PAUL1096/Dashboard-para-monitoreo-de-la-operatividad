@@ -289,6 +289,71 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         time.sleep(DELAY_ENTRE_ACCIONES)
 
 
+def seleccionar_primera_opcion_dropdown(driver, dropdown_id: str, timeout: int = 10):
+    """
+    Selecciona la primera opción disponible en un dropdown.
+
+    Útil para dropdowns donde solo necesitamos cualquier valor seleccionado
+    (como el dropdown de estación cuando queremos generar reporte por DZ).
+
+    Args:
+        driver: Instancia de WebDriver
+        dropdown_id: ID del componente dropdown
+        timeout: Tiempo máximo de espera
+    """
+    wait = WebDriverWait(driver, timeout)
+
+    # Localizar el contenedor del dropdown
+    dropdown_container = wait.until(
+        EC.presence_of_element_located((By.ID, dropdown_id))
+    )
+
+    # Click en Select-control para abrir el dropdown
+    try:
+        select_control = dropdown_container.find_element(By.CLASS_NAME, "Select-control")
+        select_control.click()
+        time.sleep(0.5)
+    except NoSuchElementException:
+        dropdown_container.click()
+        time.sleep(0.5)
+
+    # Esperar a que aparezca el menú de opciones
+    try:
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "Select-menu")))
+        time.sleep(0.3)
+    except TimeoutException:
+        pass
+
+    # Buscar la primera opción disponible
+    selectores_opciones = [
+        ".Select-menu .Select-option",
+        ".Select-option",
+        "[class*='VirtualizedSelectOption']",
+        "[role='option']"
+    ]
+
+    for selector in selectores_opciones:
+        try:
+            opciones = driver.find_elements(By.CSS_SELECTOR, selector)
+            if opciones:
+                # Seleccionar la primera opción
+                opciones[0].click()
+                time.sleep(DELAY_ENTRE_ACCIONES)
+                return
+        except:
+            pass
+
+    # Si no encontramos opciones, intentar con flecha abajo + Enter
+    try:
+        dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "input[role='combobox']")
+        dropdown_input.send_keys(Keys.ARROW_DOWN)
+        time.sleep(0.3)
+        dropdown_input.send_keys(Keys.ENTER)
+        time.sleep(DELAY_ENTRE_ACCIONES)
+    except:
+        pass
+
+
 def seleccionar_fecha_dash(driver, placeholder: str, fecha: datetime, timeout: int = 10):
     """
     Selecciona una fecha en un DatePicker de Dash usando el placeholder como selector.
@@ -331,7 +396,7 @@ def hacer_click_boton(driver, boton_texto: str = None, boton_id: str = None, tim
     """
     Hace click en un elemento clickeable por su texto o ID.
 
-    Busca en múltiples tipos de elementos: button, a, div, span, etc.
+    Incluye scroll al elemento y fallback con JavaScript click.
 
     Args:
         driver: Instancia de WebDriver
@@ -343,26 +408,35 @@ def hacer_click_boton(driver, boton_texto: str = None, boton_id: str = None, tim
 
     if boton_id:
         boton = wait.until(
-            EC.element_to_be_clickable((By.ID, boton_id))
+            EC.presence_of_element_located((By.ID, boton_id))
         )
     elif boton_texto:
         # Buscar en cualquier elemento que contenga el texto
-        # Esto incluye: button, a, div, span, etc.
         xpath = f"//*[contains(text(), '{boton_texto}')]"
         try:
             boton = wait.until(
-                EC.element_to_be_clickable((By.XPATH, xpath))
+                EC.presence_of_element_located((By.XPATH, xpath))
             )
         except TimeoutException:
-            # Si falla, intentar buscar un link <a> con el texto
             xpath_link = f"//a[contains(text(), '{boton_texto}')]"
             boton = wait.until(
-                EC.element_to_be_clickable((By.XPATH, xpath_link))
+                EC.presence_of_element_located((By.XPATH, xpath_link))
             )
     else:
         raise ValueError("Debe especificar boton_texto o boton_id")
 
-    boton.click()
+    # Scroll hasta el elemento para asegurar que esté visible
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", boton)
+    time.sleep(0.5)
+
+    # Intentar click normal primero
+    try:
+        wait.until(EC.element_to_be_clickable((By.ID, boton_id) if boton_id else (By.XPATH, xpath)))
+        boton.click()
+    except:
+        # Si falla, usar JavaScript click como fallback
+        driver.execute_script("arguments[0].click();", boton)
+
     time.sleep(DELAY_ENTRE_ACCIONES)
 
 
@@ -464,19 +538,25 @@ def descargar_reportes_dz(
 
             try:
                 # 1. Seleccionar la DZ
-                print(f"  [1/5] Seleccionando DZ {dz_num}...")
+                print(f"  [1/6] Seleccionando DZ {dz_num}...")
                 seleccionar_dropdown_dash(driver, ID_DROPDOWN_DZ, f"DZ {dz_num}")
+                time.sleep(1)  # Esperar a que se actualice el dropdown de estaciones
 
-                # 2. Seleccionar fecha de inicio (usando placeholder "Start Date")
-                print(f"  [2/5] Configurando fecha inicio: {fecha_inicio.strftime('%d/%m/%Y')}...")
+                # 2. Seleccionar una estación (la primera disponible)
+                # Esto es necesario para que carguen los datos
+                print(f"  [2/6] Seleccionando primera estación disponible...")
+                seleccionar_primera_opcion_dropdown(driver, ID_DROPDOWN_ESTACION)
+
+                # 3. Seleccionar fecha de inicio (usando placeholder "Start Date")
+                print(f"  [3/6] Configurando fecha inicio: {fecha_inicio.strftime('%d/%m/%Y')}...")
                 seleccionar_fecha_dash(driver, "Start Date", fecha_inicio)
 
-                # 3. Seleccionar fecha fin (usando placeholder "End Date")
-                print(f"  [3/5] Configurando fecha fin: {fecha_fin_sismop.strftime('%d/%m/%Y')}...")
+                # 4. Seleccionar fecha fin (usando placeholder "End Date")
+                print(f"  [4/6] Configurando fecha fin: {fecha_fin_sismop.strftime('%d/%m/%Y')}...")
                 seleccionar_fecha_dash(driver, "End Date", fecha_fin_sismop)
 
-                # 4. Click en consultar rango de fechas
-                print("  [4/5] Consultando rango de fechas...")
+                # 5. Click en consultar rango de fechas
+                print("  [5/6] Consultando rango de fechas...")
                 hacer_click_boton(driver, boton_id=ID_BOTON_CONSULTAR)
 
                 # Esperar carga de datos
@@ -486,8 +566,8 @@ def descargar_reportes_dz(
                     reportes_fallidos.append(dz_num)
                     continue
 
-                # 5. Generar y descargar reporte
-                print("  [5/5] Generando reporte PDF...")
+                # 6. Generar y descargar reporte
+                print("  [6/6] Generando reporte PDF...")
                 hacer_click_boton(driver, boton_id=ID_BOTON_REPORTE)
 
                 # Esperar descarga
