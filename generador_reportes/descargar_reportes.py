@@ -305,7 +305,8 @@ def descargar_reportes_dz(
     dzs: list = None,
     fecha_fin: datetime = None,
     dias: int = 7,
-    directorio_salida: Path = None
+    directorio_salida: Path = None,
+    tipo_red: str = "automaticas"
 ):
     """
     Descarga los reportes PDF de las Direcciones Zonales especificadas.
@@ -315,6 +316,7 @@ def descargar_reportes_dz(
         fecha_fin: Fecha final del período
         dias: Número de días del período (7 o 30)
         directorio_salida: Directorio donde guardar los PDFs
+        tipo_red: Tipo de red a consultar ("automaticas" o "convencionales")
     """
     # Configurar lista de DZs
     if dzs is None:
@@ -328,8 +330,9 @@ def descargar_reportes_dz(
     fecha_inicio, fecha_fin_sismop = calcular_rango_fechas(fecha_fin, dias)
 
     print("=" * 60)
-    print("DESCARGA AUTOMÁTICA DE REPORTES - SISMOP(A)-SGR")
+    print("DESCARGA AUTOMÁTICA DE REPORTES - SISMOP-SENAMHI")
     print("=" * 60)
+    print(f"Tipo de red: {tipo_red.upper()}")
     print(f"Período: {fecha_inicio.strftime('%d/%m/%Y')} - {(fecha_fin_sismop - timedelta(days=1)).strftime('%d/%m/%Y')}")
     print(f"Fechas en SISMOP: {fecha_inicio.strftime('%d/%m/%Y')} - {fecha_fin_sismop.strftime('%d/%m/%Y')}")
     print(f"DZs a descargar: {dzs}")
@@ -344,13 +347,16 @@ def descargar_reportes_dz(
     reportes_fallidos = []
 
     try:
-        # Navegar a SISMOP
+        # Navegar a SISMOP - Página principal
         print(f"[INFO] Navegando a {SISMOP_URL}...")
         driver.get(SISMOP_URL)
         time.sleep(3)
 
-        # TODO: Si hay selector AUTOMATICA/CONVENCIONAL, agregarlo aquí
-        # seleccionar_dropdown_dash(driver, "id-tipo-estacion", "AUTOMATICA")
+        # Seleccionar tipo de red en la página inicial
+        boton_tipo = "Automáticas" if tipo_red == "automaticas" else "Convencionales"
+        print(f"[INFO] Seleccionando '{boton_tipo}'...")
+        hacer_click_boton(driver, boton_texto=boton_tipo)
+        time.sleep(3)  # Esperar a que cargue la página
 
         # Procesar cada DZ
         for dz_num in dzs:
@@ -465,10 +471,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ejemplos de uso:
-  python descargar_reportes.py                     # Todas las DZs, últimos 7 días
-  python descargar_reportes.py --dz 1 5 9         # Solo DZs 1, 5 y 9
-  python descargar_reportes.py --dias 30          # Período de 30 días
+  python descargar_reportes.py                          # Automáticas, todas las DZs, 7 días
+  python descargar_reportes.py --dz 1 5 9              # Solo DZs 1, 5 y 9
+  python descargar_reportes.py --dias 30               # Período de 30 días
   python descargar_reportes.py --fecha-fin 2025-12-12  # Fecha específica
+  python descargar_reportes.py --tipo convencionales   # Red convencional
         """
     )
 
@@ -497,6 +504,14 @@ Ejemplos de uso:
         "--output",
         type=str,
         help="Directorio de salida para los PDFs. Por defecto: ./input_pdfs"
+    )
+
+    parser.add_argument(
+        "--tipo",
+        type=str,
+        default="automaticas",
+        choices=["automaticas", "convencionales"],
+        help="Tipo de red: automaticas o convencionales. Por defecto: automaticas"
     )
 
     args = parser.parse_args()
@@ -528,7 +543,8 @@ Ejemplos de uso:
             dzs=args.dz,
             fecha_fin=fecha_fin,
             dias=args.dias,
-            directorio_salida=directorio_salida
+            directorio_salida=directorio_salida,
+            tipo_red=args.tipo
         )
 
         # Código de salida basado en resultados
