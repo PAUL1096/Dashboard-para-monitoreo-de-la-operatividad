@@ -275,12 +275,14 @@ def seleccionar_fecha_dash(driver, placeholder: str, fecha: datetime, timeout: i
 
 def hacer_click_boton(driver, boton_texto: str = None, boton_id: str = None, timeout: int = 10):
     """
-    Hace click en un botón por su texto o ID.
+    Hace click en un elemento clickeable por su texto o ID.
+
+    Busca en múltiples tipos de elementos: button, a, div, span, etc.
 
     Args:
         driver: Instancia de WebDriver
-        boton_texto: Texto del botón a buscar
-        boton_id: ID del botón
+        boton_texto: Texto del elemento a buscar
+        boton_id: ID del elemento
         timeout: Tiempo máximo de espera
     """
     wait = WebDriverWait(driver, timeout)
@@ -290,9 +292,19 @@ def hacer_click_boton(driver, boton_texto: str = None, boton_id: str = None, tim
             EC.element_to_be_clickable((By.ID, boton_id))
         )
     elif boton_texto:
-        boton = wait.until(
-            EC.element_to_be_clickable((By.XPATH, f"//button[contains(text(), '{boton_texto}')]"))
-        )
+        # Buscar en cualquier elemento que contenga el texto
+        # Esto incluye: button, a, div, span, etc.
+        xpath = f"//*[contains(text(), '{boton_texto}')]"
+        try:
+            boton = wait.until(
+                EC.element_to_be_clickable((By.XPATH, xpath))
+            )
+        except TimeoutException:
+            # Si falla, intentar buscar un link <a> con el texto
+            xpath_link = f"//a[contains(text(), '{boton_texto}')]"
+            boton = wait.until(
+                EC.element_to_be_clickable((By.XPATH, xpath_link))
+            )
     else:
         raise ValueError("Debe especificar boton_texto o boton_id")
 
