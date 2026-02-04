@@ -358,19 +358,15 @@ pip install pdfplumber xlsxwriter
 
 ## Configuración de Selectores SISMOP
 
-El script `descargar_reportes.py` necesita los IDs correctos de los elementos HTML de SISMOP.
-Los IDs actuales son estimados y deben verificarse:
+El script `descargar_reportes.py` usa los siguientes IDs de elementos HTML de SISMOP (ya verificados):
 
-| Elemento | ID Actual (estimado) | Descripción |
-|----------|---------------------|-------------|
-| Dropdown DZ | `dropdown-dz` | Selector de Dirección Zonal |
-| Fecha inicio | `date-picker-inicio` | Input de fecha inicio |
-| Fecha fin | `date-picker-fin` | Input de fecha fin |
-| Botón consultar | (por texto) | "CONSULTAR RANGO DE FECHAS" |
-| Botón reporte | (por texto) | "GENERAR REPORTE POR DZ" |
+| Elemento | ID / Selector | Descripción |
+|----------|---------------|-------------|
+| Dropdown DZ | `dz-select` | Selector de Dirección Zonal |
+| Dropdown Estación | `station-select` | Selector de estación (no usado para reporte DZ) |
+| Fecha inicio | `placeholder="Start Date"` | Input de fecha inicio (ID dinámico) |
+| Fecha fin | `placeholder="End Date"` | Input de fecha fin (ID dinámico) |
+| Botón consultar | `update-date-range-button` | Botón "CONSULTAR RANGO DE FECHAS" |
+| Botón reporte | `report-button` | Botón "GENERAR REPORTE POR DZ" |
 
-**Para obtener los IDs reales:**
-1. Abrir SISMOP en Chrome
-2. Click derecho en el elemento → "Inspeccionar"
-3. Buscar el atributo `id` del elemento
-4. Actualizar las funciones en `descargar_reportes.py`
+**Nota:** Los inputs de fecha tienen IDs dinámicos generados por Dash, por lo que se usa el atributo `placeholder` como selector estable.

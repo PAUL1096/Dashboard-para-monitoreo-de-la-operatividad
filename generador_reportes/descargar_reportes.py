@@ -33,6 +33,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
@@ -59,6 +60,25 @@ DELAY_ENTRE_ACCIONES = 2
 
 # Directorio de descarga de PDFs (relativo al script)
 DIRECTORIO_DESCARGAS = Path(__file__).parent / "input_pdfs"
+
+# =============================================================================
+# IDs DE ELEMENTOS HTML EN SISMOP (verificados)
+# =============================================================================
+
+# Dropdown de Dirección Zonal
+ID_DROPDOWN_DZ = "dz-select"
+
+# Dropdown de Estación (no se usa para reporte por DZ, pero documentado)
+ID_DROPDOWN_ESTACION = "station-select"
+
+# Contenedor del selector de fechas
+ID_DATE_PICKER = "date-picker-select"
+
+# Botón para consultar rango de fechas
+ID_BOTON_CONSULTAR = "update-date-range-button"
+
+# Botón para generar reporte por DZ
+ID_BOTON_REPORTE = "report-button"
 
 
 # =============================================================================
@@ -215,27 +235,41 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
     raise ValueError(f"No se encontró la opción '{valor}' en el dropdown '{dropdown_id}'")
 
 
-def seleccionar_fecha_dash(driver, input_id: str, fecha: datetime, timeout: int = 10):
+def seleccionar_fecha_dash(driver, placeholder: str, fecha: datetime, timeout: int = 10):
     """
-    Selecciona una fecha en un DatePicker de Dash.
+    Selecciona una fecha en un DatePicker de Dash usando el placeholder como selector.
+
+    Los IDs de los inputs de fecha en Dash son dinámicos, por lo que usamos
+    el atributo placeholder para localizarlos de forma estable.
 
     Args:
         driver: Instancia de WebDriver
-        input_id: ID del input de fecha
+        placeholder: Valor del atributo placeholder ("Start Date" o "End Date")
         fecha: Fecha a seleccionar
         timeout: Tiempo máximo de espera
     """
     wait = WebDriverWait(driver, timeout)
 
-    # Localizar el input de fecha
+    # Localizar el input de fecha usando el placeholder
+    # Los inputs tienen placeholder="Start Date" o placeholder="End Date"
     date_input = wait.until(
-        EC.presence_of_element_located((By.ID, input_id))
+        EC.presence_of_element_located((By.CSS_SELECTOR, f"input[placeholder='{placeholder}']"))
     )
 
-    # Limpiar y escribir la fecha
-    date_input.clear()
+    # Hacer click para activar el input
+    date_input.click()
+    time.sleep(0.3)
+
+    # Limpiar el campo (seleccionar todo y borrar)
+    date_input.send_keys(Keys.CONTROL + "a")
+    time.sleep(0.1)
+
+    # Escribir la fecha en formato dd/mm/yyyy
     fecha_str = fecha.strftime("%d/%m/%Y")
     date_input.send_keys(fecha_str)
+
+    # Presionar Enter para confirmar y cerrar el calendario
+    date_input.send_keys(Keys.ENTER)
     time.sleep(DELAY_ENTRE_ACCIONES)
 
 
@@ -365,19 +399,19 @@ def descargar_reportes_dz(
             try:
                 # 1. Seleccionar la DZ
                 print(f"  [1/5] Seleccionando DZ {dz_num}...")
-                seleccionar_dropdown_dash(driver, "dropdown-dz", f"DZ {dz_num}")
+                seleccionar_dropdown_dash(driver, ID_DROPDOWN_DZ, f"DZ {dz_num}")
 
-                # 2. Seleccionar fecha de inicio
+                # 2. Seleccionar fecha de inicio (usando placeholder "Start Date")
                 print(f"  [2/5] Configurando fecha inicio: {fecha_inicio.strftime('%d/%m/%Y')}...")
-                seleccionar_fecha_dash(driver, "date-picker-inicio", fecha_inicio)
+                seleccionar_fecha_dash(driver, "Start Date", fecha_inicio)
 
-                # 3. Seleccionar fecha fin
+                # 3. Seleccionar fecha fin (usando placeholder "End Date")
                 print(f"  [3/5] Configurando fecha fin: {fecha_fin_sismop.strftime('%d/%m/%Y')}...")
-                seleccionar_fecha_dash(driver, "date-picker-fin", fecha_fin_sismop)
+                seleccionar_fecha_dash(driver, "End Date", fecha_fin_sismop)
 
                 # 4. Click en consultar rango de fechas
                 print("  [4/5] Consultando rango de fechas...")
-                hacer_click_boton(driver, boton_texto="CONSULTAR RANGO DE FECHAS")
+                hacer_click_boton(driver, boton_id=ID_BOTON_CONSULTAR)
 
                 # Esperar carga de datos
                 print("  [    ] Esperando carga de datos...")
@@ -388,7 +422,7 @@ def descargar_reportes_dz(
 
                 # 5. Generar y descargar reporte
                 print("  [5/5] Generando reporte PDF...")
-                hacer_click_boton(driver, boton_texto="GENERAR REPORTE POR DZ")
+                hacer_click_boton(driver, boton_id=ID_BOTON_REPORTE)
 
                 # Esperar descarga
                 print("  [    ] Esperando descarga del PDF...")
