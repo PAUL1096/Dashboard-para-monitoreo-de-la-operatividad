@@ -197,9 +197,10 @@ def esperar_descarga_completa(directorio: Path, timeout: int = 180) -> bool:
 
 def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int = 10):
     """
-    Selecciona un valor en un dropdown de Dash (dcc.Dropdown).
+    Selecciona un valor en un dropdown searchable de Dash (dcc.Dropdown).
 
-    Intenta múltiples métodos para manejar diferentes versiones de dropdowns.
+    Para dropdowns con clase 'is-searchable', escribe el valor en el input
+    para filtrar y luego selecciona la opción.
 
     Args:
         driver: Instancia de WebDriver
@@ -214,95 +215,75 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         EC.presence_of_element_located((By.ID, dropdown_id))
     )
 
-    # Intentar diferentes métodos para abrir el dropdown
-    dropdown_opened = False
-
-    # Método 1: Buscar Select-control (react-select antiguo)
+    # Buscar el input dentro del dropdown (para dropdowns searchable)
+    # Estructura: div#dz-select > div.Select > div.Select-control > div.Select-input > input
     try:
-        dropdown_input = dropdown_container.find_element(By.CLASS_NAME, "Select-control")
-        dropdown_input.click()
-        dropdown_opened = True
+        dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "input[role='combobox']")
     except NoSuchElementException:
-        pass
-
-    # Método 2: Buscar Select__control (react-select moderno)
-    if not dropdown_opened:
         try:
-            dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "[class*='Select__control']")
-            dropdown_input.click()
-            dropdown_opened = True
+            dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, ".Select-input input")
         except NoSuchElementException:
-            pass
+            try:
+                dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
+            except NoSuchElementException:
+                # Si no hay input, hacer click en Select-control
+                dropdown_input = dropdown_container.find_element(By.CLASS_NAME, "Select-control")
 
-    # Método 3: Buscar un input dentro del dropdown
-    if not dropdown_opened:
-        try:
-            dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
-            dropdown_input.click()
-            dropdown_opened = True
-        except NoSuchElementException:
-            pass
-
-    # Método 4: Click directo en el contenedor
-    if not dropdown_opened:
-        dropdown_container.click()
-        dropdown_opened = True
-
+    # Hacer click para activar/abrir el dropdown
+    dropdown_input.click()
     time.sleep(0.5)
 
-    # Buscar y seleccionar la opción deseada
-    # Intentar diferentes selectores para las opciones
-    opciones = None
+    # Escribir el valor para filtrar las opciones
+    dropdown_input.send_keys(valor)
+    time.sleep(1)  # Esperar a que se filtren las opciones
 
-    # Método 1: Select-option (react-select antiguo)
+    # Buscar las opciones que aparecen
+    # Las opciones están en div.Select-menu > div.Select-menu-outer > div.Select-option
+    opciones = []
+
+    # Esperar a que aparezca el menú de opciones
     try:
-        opciones = driver.find_elements(By.CLASS_NAME, "Select-option")
-    except:
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "Select-menu")))
+        time.sleep(0.3)
+    except TimeoutException:
         pass
 
-    # Método 2: Select__option (react-select moderno)
-    if not opciones:
+    # Buscar opciones con diferentes selectores
+    selectores_opciones = [
+        ".Select-menu .Select-option",
+        ".Select-menu-outer .Select-option",
+        ".Select-option",
+        "[class*='VirtualizedSelectOption']",
+        "[role='option']"
+    ]
+
+    for selector in selectores_opciones:
         try:
-            opciones = driver.find_elements(By.CSS_SELECTOR, "[class*='Select__option']")
+            opciones = driver.find_elements(By.CSS_SELECTOR, selector)
+            if opciones:
+                break
         except:
             pass
 
-    # Método 3: VirtualizedSelectOption
-    if not opciones:
-        try:
-            opciones = driver.find_elements(By.CSS_SELECTOR, "[class*='VirtualizedSelectOption']")
-        except:
-            pass
+    # Si encontramos opciones, seleccionar la primera (que debería coincidir con lo escrito)
+    if opciones:
+        for opcion in opciones:
+            texto = opcion.text.strip()
+            if valor.lower() in texto.lower() or texto.lower() in valor.lower():
+                opcion.click()
+                time.sleep(DELAY_ENTRE_ACCIONES)
+                return
 
-    # Método 4: Buscar divs con role=option
-    if not opciones:
-        try:
-            opciones = driver.find_elements(By.CSS_SELECTOR, "[role='option']")
-        except:
-            pass
+        # Si no hay coincidencia exacta, seleccionar la primera
+        opciones[0].click()
+        time.sleep(DELAY_ENTRE_ACCIONES)
+        return
 
-    # Método 5: Buscar cualquier elemento que contenga el texto del valor
-    if not opciones:
-        try:
-            xpath = f"//*[contains(text(), '{valor}')]"
-            opciones = driver.find_elements(By.XPATH, xpath)
-        except:
-            pass
-
-    if not opciones:
-        raise ValueError(f"No se encontraron opciones en el dropdown '{dropdown_id}'")
-
-    # Buscar la opción que coincida con el valor
-    for opcion in opciones:
-        texto_opcion = opcion.text.strip()
-        if valor in texto_opcion or texto_opcion in valor:
-            opcion.click()
-            time.sleep(DELAY_ENTRE_ACCIONES)
-            return
-
-    # Si no encontramos coincidencia exacta, mostrar las opciones disponibles
-    textos_disponibles = [op.text for op in opciones if op.text.strip()]
-    raise ValueError(f"No se encontró '{valor}' en dropdown '{dropdown_id}'. Opciones disponibles: {textos_disponibles}")
+    # Si no aparecieron opciones, intentar presionar flecha abajo + Enter
+    dropdown_input.send_keys(Keys.ARROW_DOWN)
+    time.sleep(0.3)
+    dropdown_input.send_keys(Keys.ENTER)
+    time.sleep(DELAY_ENTRE_ACCIONES)
 
 
 def seleccionar_fecha_dash(driver, placeholder: str, fecha: datetime, timeout: int = 10):
