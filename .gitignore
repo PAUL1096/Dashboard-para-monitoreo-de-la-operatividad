@@ -60,11 +60,16 @@ htmlcov/
 *.bak
 *.cache
 
-# Generador de reportes - PDFs de entrada (no versionados)
+# Generador de reportes - PDFs de entrada (no versionados, excepto ejemplos)
 generador_reportes/input_pdfs/*.pdf
+!generador_reportes/input_pdfs/Reporte_DZ_1.pdf
 !generador_reportes/input_pdfs/.gitkeep
 
 # Generador de reportes - Archivos intermedios (no versionados)
 generador_reportes/output/*.csv
 generador_reportes/output/*.xlsx
 !generador_reportes/output/.gitkeep
+
+# Generador de reportes - Datos de configuración (sí versionados)
+!generador_reportes/data/
+!generador_reportes/data/*.xlsx
