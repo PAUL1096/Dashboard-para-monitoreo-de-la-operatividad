@@ -300,8 +300,16 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         EC.presence_of_element_located((By.ID, dropdown_id))
     )
 
-    # Primero hacer click en Select-control para abrir el dropdown
-    # (el input está oculto detrás del placeholder)
+    # Primero, intentar limpiar cualquier selección existente
+    # Buscar el botón X para limpiar (Select-clear)
+    try:
+        clear_button = dropdown_container.find_element(By.CLASS_NAME, "Select-clear")
+        clear_button.click()
+        time.sleep(0.3)
+    except NoSuchElementException:
+        pass
+
+    # Hacer click en Select-control para abrir el dropdown
     try:
         select_control = dropdown_container.find_element(By.CLASS_NAME, "Select-control")
         select_control.click()
@@ -310,17 +318,24 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         dropdown_container.click()
         time.sleep(0.5)
 
-    # Ahora buscar el input (que debería estar activo después del click)
+    # Buscar el input
+    dropdown_input = None
     try:
         dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "input[role='combobox']")
     except NoSuchElementException:
         try:
             dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
         except NoSuchElementException:
-            dropdown_input = None
+            pass
 
-    # Escribir el valor para filtrar las opciones (si encontramos el input)
+    # Limpiar el input y escribir el valor
     if dropdown_input:
+        # Limpiar cualquier texto existente
+        dropdown_input.send_keys(Keys.CONTROL + "a")
+        dropdown_input.send_keys(Keys.DELETE)
+        time.sleep(0.2)
+
+        # Escribir el valor para filtrar
         dropdown_input.send_keys(valor)
         time.sleep(1)  # Esperar a que se filtren las opciones
 
@@ -352,16 +367,28 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         except:
             pass
 
-    # Si encontramos opciones, seleccionar la primera (que debería coincidir con lo escrito)
+    # Si encontramos opciones, buscar coincidencia EXACTA primero
     if opciones:
+        # Primero buscar coincidencia exacta
         for opcion in opciones:
             texto = opcion.text.strip()
-            if valor.lower() in texto.lower() or texto.lower() in valor.lower():
+            if texto.lower() == valor.lower():
                 opcion.click()
                 time.sleep(DELAY_ENTRE_ACCIONES)
                 return
 
-        # Si no hay coincidencia exacta, seleccionar la primera
+        # Si no hay exacta, buscar la que empiece con el valor (para "DZ 10" no matchee "DZ 1")
+        for opcion in opciones:
+            texto = opcion.text.strip()
+            # Para valores como "DZ 10", verificar que no sea "DZ 1" (match parcial)
+            if texto.lower().startswith(valor.lower()) or valor.lower().startswith(texto.lower()):
+                # Verificar longitud similar para evitar "DZ 1" matcheando "DZ 10"
+                if abs(len(texto) - len(valor)) <= 2:
+                    opcion.click()
+                    time.sleep(DELAY_ENTRE_ACCIONES)
+                    return
+
+        # Última opción: seleccionar la primera
         opciones[0].click()
         time.sleep(DELAY_ENTRE_ACCIONES)
         return
