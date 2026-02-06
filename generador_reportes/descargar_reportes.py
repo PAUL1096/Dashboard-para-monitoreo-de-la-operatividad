@@ -231,39 +231,47 @@ def esperar_descarga_completa(directorio: Path, timeout: int = 180, driver=None)
         bool: True si la descarga se completó, False si hubo timeout
     """
     tiempo_inicio = time.time()
-    # Contar PDFs existentes antes de esperar
-    pdfs_antes = set(directorio.glob("*.pdf"))
+
+    # Guardar estado inicial: nombre -> (tamaño, tiempo modificación)
+    def obtener_estado_pdfs():
+        return {p.name: (p.stat().st_size, p.stat().st_mtime) for p in directorio.glob("*.pdf")}
+
+    estado_antes = obtener_estado_pdfs()
+    cantidad_antes = len(estado_antes)
     intentos_dialogo = 0
 
     while time.time() - tiempo_inicio < timeout:
         # Intentar manejar el diálogo de descarga periódicamente
-        if driver and intentos_dialogo < 5:
+        if driver and intentos_dialogo < 3:
             manejar_dialogo_descarga(driver)
             intentos_dialogo += 1
 
         # Buscar archivos .crdownload (descargas en progreso de Chrome)
         descargas_en_progreso = list(directorio.glob("*.crdownload"))
 
-        # Verificar si hay un PDF nuevo (que no existía antes)
-        pdfs_ahora = set(directorio.glob("*.pdf"))
-        pdfs_nuevos = pdfs_ahora - pdfs_antes
+        # Obtener estado actual de PDFs
+        estado_ahora = obtener_estado_pdfs()
+        cantidad_ahora = len(estado_ahora)
 
-        if pdfs_nuevos and not descargas_en_progreso:
-            # Hay un PDF nuevo y no hay descargas en progreso
-            pdf_nuevo = list(pdfs_nuevos)[0]
-            if pdf_nuevo.stat().st_size > 0:
-                return True
+        # Verificación 1: ¿Hay más PDFs que antes?
+        if cantidad_ahora > cantidad_antes and not descargas_en_progreso:
+            return True
 
-        # También verificar el PDF más reciente por si el nombre ya existía
+        # Verificación 2: ¿Algún PDF cambió de tamaño o tiempo?
         if not descargas_en_progreso:
-            pdfs = list(directorio.glob("*.pdf"))
-            if pdfs:
-                pdf_reciente = max(pdfs, key=lambda p: p.stat().st_mtime)
-                # Verificar que fue modificado después de iniciar la espera
-                if pdf_reciente.stat().st_mtime > tiempo_inicio and pdf_reciente.stat().st_size > 0:
-                    return True
+            for nombre, (tamano, mtime) in estado_ahora.items():
+                if nombre in estado_antes:
+                    tamano_antes, mtime_antes = estado_antes[nombre]
+                    # Si el tamaño cambió o el tiempo de modificación es diferente
+                    if tamano != tamano_antes or mtime != mtime_antes:
+                        if tamano > 0:  # Asegurarse que no está vacío
+                            return True
+                else:
+                    # Es un archivo nuevo
+                    if tamano > 0:
+                        return True
 
-        time.sleep(2)
+        time.sleep(3)
 
     return False
 
