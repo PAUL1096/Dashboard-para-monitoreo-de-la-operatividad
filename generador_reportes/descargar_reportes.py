@@ -161,6 +161,13 @@ def configurar_chrome(directorio_descargas: Path) -> webdriver.Chrome:
     driver = webdriver.Chrome(options=chrome_options)
     driver.implicitly_wait(10)
 
+    # Usar Chrome DevTools Protocol para permitir descargas sin confirmación
+    # Esto evita el diálogo "Se bloqueó una descarga no segura"
+    driver.execute_cdp_cmd("Page.setDownloadBehavior", {
+        "behavior": "allow",
+        "downloadPath": str(directorio_descargas.absolute())
+    })
+
     return driver
 
 
@@ -211,30 +218,49 @@ def manejar_dialogo_descarga(driver, timeout: int = 5):
     return False
 
 
-def esperar_descarga_completa(directorio: Path, timeout: int = 180) -> bool:
+def esperar_descarga_completa(directorio: Path, timeout: int = 180, driver=None) -> bool:
     """
     Espera hasta que se complete la descarga del archivo PDF.
 
     Args:
         directorio: Directorio donde se descarga el archivo
         timeout: Tiempo máximo de espera en segundos
+        driver: Instancia de WebDriver para manejar diálogos
 
     Returns:
         bool: True si la descarga se completó, False si hubo timeout
     """
     tiempo_inicio = time.time()
+    # Contar PDFs existentes antes de esperar
+    pdfs_antes = set(directorio.glob("*.pdf"))
+    intentos_dialogo = 0
 
     while time.time() - tiempo_inicio < timeout:
+        # Intentar manejar el diálogo de descarga periódicamente
+        if driver and intentos_dialogo < 5:
+            manejar_dialogo_descarga(driver)
+            intentos_dialogo += 1
+
         # Buscar archivos .crdownload (descargas en progreso de Chrome)
         descargas_en_progreso = list(directorio.glob("*.crdownload"))
 
+        # Verificar si hay un PDF nuevo (que no existía antes)
+        pdfs_ahora = set(directorio.glob("*.pdf"))
+        pdfs_nuevos = pdfs_ahora - pdfs_antes
+
+        if pdfs_nuevos and not descargas_en_progreso:
+            # Hay un PDF nuevo y no hay descargas en progreso
+            pdf_nuevo = list(pdfs_nuevos)[0]
+            if pdf_nuevo.stat().st_size > 0:
+                return True
+
+        # También verificar el PDF más reciente por si el nombre ya existía
         if not descargas_en_progreso:
-            # Verificar si hay un PDF nuevo
             pdfs = list(directorio.glob("*.pdf"))
             if pdfs:
-                # Verificar que el archivo más reciente no esté vacío
                 pdf_reciente = max(pdfs, key=lambda p: p.stat().st_mtime)
-                if pdf_reciente.stat().st_size > 0:
+                # Verificar que fue modificado después de iniciar la espera
+                if pdf_reciente.stat().st_mtime > tiempo_inicio and pdf_reciente.stat().st_size > 0:
                     return True
 
         time.sleep(2)
@@ -624,9 +650,9 @@ def descargar_reportes_dz(
                 time.sleep(2)  # Esperar a que aparezca el diálogo
                 manejar_dialogo_descarga(driver)
 
-                # Esperar descarga
+                # Esperar descarga (pasando driver para manejar diálogos)
                 print("  [    ] Esperando descarga del PDF...")
-                if esperar_descarga_completa(directorio_salida, TIMEOUT_GENERACION_REPORTE):
+                if esperar_descarga_completa(directorio_salida, TIMEOUT_GENERACION_REPORTE, driver):
                     print(f"  [OK] Reporte DZ {dz_num} descargado correctamente")
                     reportes_descargados.append(dz_num)
 
