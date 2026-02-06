@@ -218,60 +218,48 @@ def manejar_dialogo_descarga(driver, timeout: int = 5):
     return False
 
 
-def esperar_descarga_completa(directorio: Path, timeout: int = 180, driver=None) -> bool:
+def esperar_descarga_completa(directorio: Path, timeout: int = 30, driver=None) -> bool:
     """
     Espera hasta que se complete la descarga del archivo PDF.
 
+    Simplificado: busca cualquier PDF modificado en los últimos 30 segundos.
+
     Args:
         directorio: Directorio donde se descarga el archivo
-        timeout: Tiempo máximo de espera en segundos
+        timeout: Tiempo máximo de espera en segundos (default: 30)
         driver: Instancia de WebDriver para manejar diálogos
 
     Returns:
         bool: True si la descarga se completó, False si hubo timeout
     """
     tiempo_inicio = time.time()
-
-    # Guardar estado inicial: nombre -> (tamaño, tiempo modificación)
-    def obtener_estado_pdfs():
-        return {p.name: (p.stat().st_size, p.stat().st_mtime) for p in directorio.glob("*.pdf")}
-
-    estado_antes = obtener_estado_pdfs()
-    cantidad_antes = len(estado_antes)
     intentos_dialogo = 0
 
     while time.time() - tiempo_inicio < timeout:
-        # Intentar manejar el diálogo de descarga periódicamente
-        if driver and intentos_dialogo < 3:
+        # Intentar manejar el diálogo de descarga
+        if driver and intentos_dialogo < 2:
             manejar_dialogo_descarga(driver)
             intentos_dialogo += 1
 
-        # Buscar archivos .crdownload (descargas en progreso de Chrome)
+        # Buscar archivos .crdownload (descargas en progreso)
         descargas_en_progreso = list(directorio.glob("*.crdownload"))
 
-        # Obtener estado actual de PDFs
-        estado_ahora = obtener_estado_pdfs()
-        cantidad_ahora = len(estado_ahora)
+        if descargas_en_progreso:
+            time.sleep(2)
+            continue
 
-        # Verificación 1: ¿Hay más PDFs que antes?
-        if cantidad_ahora > cantidad_antes and not descargas_en_progreso:
-            return True
+        # Buscar PDFs modificados en los últimos 30 segundos
+        ahora = time.time()
+        for pdf in directorio.glob("*.pdf"):
+            try:
+                mtime = pdf.stat().st_mtime
+                edad_segundos = ahora - mtime
+                if edad_segundos < 30 and pdf.stat().st_size > 1000:
+                    return True
+            except:
+                pass
 
-        # Verificación 2: ¿Algún PDF cambió de tamaño o tiempo?
-        if not descargas_en_progreso:
-            for nombre, (tamano, mtime) in estado_ahora.items():
-                if nombre in estado_antes:
-                    tamano_antes, mtime_antes = estado_antes[nombre]
-                    # Si el tamaño cambió o el tiempo de modificación es diferente
-                    if tamano != tamano_antes or mtime != mtime_antes:
-                        if tamano > 0:  # Asegurarse que no está vacío
-                            return True
-                else:
-                    # Es un archivo nuevo
-                    if tamano > 0:
-                        return True
-
-        time.sleep(3)
+        time.sleep(2)
 
     return False
 
