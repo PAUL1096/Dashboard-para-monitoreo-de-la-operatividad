@@ -218,60 +218,48 @@ def manejar_dialogo_descarga(driver, timeout: int = 5):
     return False
 
 
-def esperar_descarga_completa(directorio: Path, timeout: int = 180, driver=None) -> bool:
+def esperar_descarga_completa(directorio: Path, timeout: int = 30, driver=None) -> bool:
     """
     Espera hasta que se complete la descarga del archivo PDF.
 
+    Simplificado: busca cualquier PDF modificado en los últimos 30 segundos.
+
     Args:
         directorio: Directorio donde se descarga el archivo
-        timeout: Tiempo máximo de espera en segundos
+        timeout: Tiempo máximo de espera en segundos (default: 30)
         driver: Instancia de WebDriver para manejar diálogos
 
     Returns:
         bool: True si la descarga se completó, False si hubo timeout
     """
     tiempo_inicio = time.time()
-
-    # Guardar estado inicial: nombre -> (tamaño, tiempo modificación)
-    def obtener_estado_pdfs():
-        return {p.name: (p.stat().st_size, p.stat().st_mtime) for p in directorio.glob("*.pdf")}
-
-    estado_antes = obtener_estado_pdfs()
-    cantidad_antes = len(estado_antes)
     intentos_dialogo = 0
 
     while time.time() - tiempo_inicio < timeout:
-        # Intentar manejar el diálogo de descarga periódicamente
-        if driver and intentos_dialogo < 3:
+        # Intentar manejar el diálogo de descarga
+        if driver and intentos_dialogo < 2:
             manejar_dialogo_descarga(driver)
             intentos_dialogo += 1
 
-        # Buscar archivos .crdownload (descargas en progreso de Chrome)
+        # Buscar archivos .crdownload (descargas en progreso)
         descargas_en_progreso = list(directorio.glob("*.crdownload"))
 
-        # Obtener estado actual de PDFs
-        estado_ahora = obtener_estado_pdfs()
-        cantidad_ahora = len(estado_ahora)
+        if descargas_en_progreso:
+            time.sleep(2)
+            continue
 
-        # Verificación 1: ¿Hay más PDFs que antes?
-        if cantidad_ahora > cantidad_antes and not descargas_en_progreso:
-            return True
+        # Buscar PDFs modificados en los últimos 30 segundos
+        ahora = time.time()
+        for pdf in directorio.glob("*.pdf"):
+            try:
+                mtime = pdf.stat().st_mtime
+                edad_segundos = ahora - mtime
+                if edad_segundos < 30 and pdf.stat().st_size > 1000:
+                    return True
+            except:
+                pass
 
-        # Verificación 2: ¿Algún PDF cambió de tamaño o tiempo?
-        if not descargas_en_progreso:
-            for nombre, (tamano, mtime) in estado_ahora.items():
-                if nombre in estado_antes:
-                    tamano_antes, mtime_antes = estado_antes[nombre]
-                    # Si el tamaño cambió o el tiempo de modificación es diferente
-                    if tamano != tamano_antes or mtime != mtime_antes:
-                        if tamano > 0:  # Asegurarse que no está vacío
-                            return True
-                else:
-                    # Es un archivo nuevo
-                    if tamano > 0:
-                        return True
-
-        time.sleep(3)
+        time.sleep(2)
 
     return False
 
@@ -300,8 +288,16 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         EC.presence_of_element_located((By.ID, dropdown_id))
     )
 
-    # Primero hacer click en Select-control para abrir el dropdown
-    # (el input está oculto detrás del placeholder)
+    # Primero, intentar limpiar cualquier selección existente
+    # Buscar el botón X para limpiar (Select-clear)
+    try:
+        clear_button = dropdown_container.find_element(By.CLASS_NAME, "Select-clear")
+        clear_button.click()
+        time.sleep(0.3)
+    except NoSuchElementException:
+        pass
+
+    # Hacer click en Select-control para abrir el dropdown
     try:
         select_control = dropdown_container.find_element(By.CLASS_NAME, "Select-control")
         select_control.click()
@@ -310,17 +306,24 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         dropdown_container.click()
         time.sleep(0.5)
 
-    # Ahora buscar el input (que debería estar activo después del click)
+    # Buscar el input
+    dropdown_input = None
     try:
         dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "input[role='combobox']")
     except NoSuchElementException:
         try:
             dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
         except NoSuchElementException:
-            dropdown_input = None
+            pass
 
-    # Escribir el valor para filtrar las opciones (si encontramos el input)
+    # Limpiar el input y escribir el valor
     if dropdown_input:
+        # Limpiar cualquier texto existente
+        dropdown_input.send_keys(Keys.CONTROL + "a")
+        dropdown_input.send_keys(Keys.DELETE)
+        time.sleep(0.2)
+
+        # Escribir el valor para filtrar
         dropdown_input.send_keys(valor)
         time.sleep(1)  # Esperar a que se filtren las opciones
 
@@ -352,16 +355,28 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         except:
             pass
 
-    # Si encontramos opciones, seleccionar la primera (que debería coincidir con lo escrito)
+    # Si encontramos opciones, buscar coincidencia EXACTA primero
     if opciones:
+        # Primero buscar coincidencia exacta
         for opcion in opciones:
             texto = opcion.text.strip()
-            if valor.lower() in texto.lower() or texto.lower() in valor.lower():
+            if texto.lower() == valor.lower():
                 opcion.click()
                 time.sleep(DELAY_ENTRE_ACCIONES)
                 return
 
-        # Si no hay coincidencia exacta, seleccionar la primera
+        # Si no hay exacta, buscar la que empiece con el valor (para "DZ 10" no matchee "DZ 1")
+        for opcion in opciones:
+            texto = opcion.text.strip()
+            # Para valores como "DZ 10", verificar que no sea "DZ 1" (match parcial)
+            if texto.lower().startswith(valor.lower()) or valor.lower().startswith(texto.lower()):
+                # Verificar longitud similar para evitar "DZ 1" matcheando "DZ 10"
+                if abs(len(texto) - len(valor)) <= 2:
+                    opcion.click()
+                    time.sleep(DELAY_ENTRE_ACCIONES)
+                    return
+
+        # Última opción: seleccionar la primera
         opciones[0].click()
         time.sleep(DELAY_ENTRE_ACCIONES)
         return
