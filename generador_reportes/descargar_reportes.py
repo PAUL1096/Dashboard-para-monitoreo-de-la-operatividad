@@ -55,8 +55,8 @@ TIMEOUT_CARGA_DATOS = 120
 # Tiempo máximo de espera para generación de reporte (segundos)
 TIMEOUT_GENERACION_REPORTE = 180
 
-# Tiempo de espera entre acciones (segundos)
-DELAY_ENTRE_ACCIONES = 2
+# Tiempo de espera entre acciones (segundos) - reducido para mayor velocidad
+DELAY_ENTRE_ACCIONES = 0.5
 
 # Directorio de descarga de PDFs (relativo al script)
 DIRECTORIO_DESCARGAS = Path(__file__).parent / "input_pdfs"
@@ -218,54 +218,78 @@ def manejar_dialogo_descarga(driver, timeout: int = 5):
     return False
 
 
-def esperar_descarga_completa(directorio: Path, timeout: int = 60, driver=None, dias: int = 7) -> bool:
+def esperar_descarga_completa(directorio: Path, timeout: int = 60, driver=None, dias: int = 7, pdfs_antes: set = None) -> bool:
     """
     Espera hasta que se complete la descarga del archivo PDF.
 
-    Busca PDFs modificados DESPUÉS de iniciar la espera.
-    El timeout se ajusta automáticamente según el período.
+    Detecta nuevos PDFs comparando con el estado anterior del directorio.
 
     Args:
         directorio: Directorio donde se descarga el archivo
         timeout: Tiempo máximo de espera base en segundos
         driver: Instancia de WebDriver para manejar diálogos
         dias: Período en días para ajustar timeout
+        pdfs_antes: Set de nombres de PDFs existentes antes de iniciar descarga
 
     Returns:
         bool: True si la descarga se completó, False si hubo timeout
     """
-    # Ajustar timeout según período (PDFs de 30 días son más grandes)
+    # Ajustar timeout según período
     if dias > 7:
         timeout = int(timeout * 1.5)
+
+    # Si no se pasó lista de PDFs anteriores, obtenerla ahora
+    if pdfs_antes is None:
+        pdfs_antes = set(p.name for p in directorio.glob("*.pdf"))
+
     tiempo_inicio = time.time()
     intentos_dialogo = 0
+    ultimo_log = 0
 
     while time.time() - tiempo_inicio < timeout:
+        transcurrido = time.time() - tiempo_inicio
+
         # Intentar manejar el diálogo de descarga
-        if driver and intentos_dialogo < 2:
+        if driver and intentos_dialogo < 3:
             manejar_dialogo_descarga(driver)
             intentos_dialogo += 1
 
         # Buscar archivos .crdownload (descargas en progreso)
         descargas_en_progreso = list(directorio.glob("*.crdownload"))
-
         if descargas_en_progreso:
-            time.sleep(2)
+            if transcurrido - ultimo_log > 10:
+                print(f"  [    ] Descarga en progreso... ({transcurrido:.0f}s)")
+                ultimo_log = transcurrido
+            time.sleep(1)
             continue
 
-        # Buscar PDFs modificados DESPUÉS de tiempo_inicio
-        for pdf in directorio.glob("*.pdf"):
-            try:
-                mtime = pdf.stat().st_mtime
-                # Si el PDF fue modificado después de que empezamos a esperar
-                if mtime >= tiempo_inicio and pdf.stat().st_size > 1000:
-                    return True
-            except:
-                pass
+        # Buscar nuevos PDFs (que no estaban antes)
+        pdfs_actuales = set(p.name for p in directorio.glob("*.pdf"))
+        nuevos_pdfs = pdfs_actuales - pdfs_antes
 
-        time.sleep(2)
+        if nuevos_pdfs:
+            # Verificar que el PDF tenga contenido
+            for nombre_pdf in nuevos_pdfs:
+                pdf_path = directorio / nombre_pdf
+                try:
+                    if pdf_path.stat().st_size > 1000:
+                        print(f"  [    ] PDF detectado: {nombre_pdf} ({transcurrido:.1f}s)")
+                        return True
+                except:
+                    pass
 
+        time.sleep(1)
+
+    # Timeout - mostrar diagnóstico
+    print(f"  [DEBUG] Timeout después de {timeout}s")
+    print(f"  [DEBUG] PDFs antes: {pdfs_antes}")
+    print(f"  [DEBUG] PDFs ahora: {set(p.name for p in directorio.glob('*.pdf'))}")
     return False
+
+
+def obtener_pdfs_existentes(directorio: Path) -> set:
+    """Obtiene el set de nombres de PDFs existentes en el directorio."""
+    return set(p.name for p in directorio.glob("*.pdf"))
 
 
 # =============================================================================
@@ -276,8 +300,7 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
     """
     Selecciona un valor en un dropdown searchable de Dash (dcc.Dropdown).
 
-    Para dropdowns con clase 'is-searchable', escribe el valor en el input
-    para filtrar y luego selecciona la opción.
+    Versión optimizada: escribe el valor y presiona Enter directamente.
 
     Args:
         driver: Instancia de WebDriver
@@ -292,113 +315,55 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         EC.presence_of_element_located((By.ID, dropdown_id))
     )
 
-    # Primero, intentar limpiar cualquier selección existente
-    # Buscar el botón X para limpiar (Select-clear)
+    # Limpiar selección existente si hay
     try:
         clear_button = dropdown_container.find_element(By.CLASS_NAME, "Select-clear")
         clear_button.click()
-        time.sleep(0.3)
     except NoSuchElementException:
         pass
 
-    # Hacer click en Select-control para abrir el dropdown
+    # Click para abrir el dropdown
     try:
         select_control = dropdown_container.find_element(By.CLASS_NAME, "Select-control")
         select_control.click()
-        time.sleep(0.5)
     except NoSuchElementException:
         dropdown_container.click()
-        time.sleep(0.5)
 
-    # Buscar el input
-    dropdown_input = None
+    # Buscar el input y escribir
     try:
         dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "input[role='combobox']")
     except NoSuchElementException:
-        try:
-            dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
-        except NoSuchElementException:
-            pass
+        dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
 
-    # Limpiar el input y escribir el valor
-    if dropdown_input:
-        # Limpiar cualquier texto existente
-        dropdown_input.send_keys(Keys.CONTROL + "a")
-        dropdown_input.send_keys(Keys.DELETE)
-        time.sleep(0.2)
+    # Escribir el valor y presionar Enter (método rápido)
+    dropdown_input.send_keys(Keys.CONTROL + "a")
+    dropdown_input.send_keys(valor)
 
-        # Escribir el valor para filtrar
-        dropdown_input.send_keys(valor)
-        time.sleep(1)  # Esperar a que se filtren las opciones
+    # Esperar brevemente a que aparezcan opciones y seleccionar la correcta
+    time.sleep(0.3)
 
-    # Buscar las opciones que aparecen
-    # Las opciones están en div.Select-menu > div.Select-menu-outer > div.Select-option
-    opciones = []
-
-    # Esperar a que aparezca el menú de opciones
+    # Buscar la opción exacta en el menú
     try:
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "Select-menu")))
-        time.sleep(0.3)
-    except TimeoutException:
+        opciones = driver.find_elements(By.CSS_SELECTOR, ".Select-option")
+        for opcion in opciones:
+            if opcion.text.strip().lower() == valor.lower():
+                opcion.click()
+                return
+        # Si no hay exacta, usar la primera
+        if opciones:
+            opciones[0].click()
+            return
+    except:
         pass
 
-    # Buscar opciones con diferentes selectores
-    selectores_opciones = [
-        ".Select-menu .Select-option",
-        ".Select-menu-outer .Select-option",
-        ".Select-option",
-        "[class*='VirtualizedSelectOption']",
-        "[role='option']"
-    ]
-
-    for selector in selectores_opciones:
-        try:
-            opciones = driver.find_elements(By.CSS_SELECTOR, selector)
-            if opciones:
-                break
-        except:
-            pass
-
-    # Si encontramos opciones, buscar coincidencia EXACTA primero
-    if opciones:
-        # Primero buscar coincidencia exacta
-        for opcion in opciones:
-            texto = opcion.text.strip()
-            if texto.lower() == valor.lower():
-                opcion.click()
-                time.sleep(DELAY_ENTRE_ACCIONES)
-                return
-
-        # Si no hay exacta, buscar la que empiece con el valor (para "DZ 10" no matchee "DZ 1")
-        for opcion in opciones:
-            texto = opcion.text.strip()
-            # Para valores como "DZ 10", verificar que no sea "DZ 1" (match parcial)
-            if texto.lower().startswith(valor.lower()) or valor.lower().startswith(texto.lower()):
-                # Verificar longitud similar para evitar "DZ 1" matcheando "DZ 10"
-                if abs(len(texto) - len(valor)) <= 2:
-                    opcion.click()
-                    time.sleep(DELAY_ENTRE_ACCIONES)
-                    return
-
-        # Última opción: seleccionar la primera
-        opciones[0].click()
-        time.sleep(DELAY_ENTRE_ACCIONES)
-        return
-
-    # Si no aparecieron opciones, intentar presionar flecha abajo + Enter
-    if dropdown_input:
-        dropdown_input.send_keys(Keys.ARROW_DOWN)
-        time.sleep(0.3)
-        dropdown_input.send_keys(Keys.ENTER)
-        time.sleep(DELAY_ENTRE_ACCIONES)
+    # Fallback: Enter para seleccionar
+    dropdown_input.send_keys(Keys.ENTER)
 
 
 def seleccionar_primera_opcion_dropdown(driver, dropdown_id: str, timeout: int = 10):
     """
     Selecciona la primera opción disponible en un dropdown.
-
-    Útil para dropdowns donde solo necesitamos cualquier valor seleccionado
-    (como el dropdown de estación cuando queremos generar reporte por DZ).
+    Versión optimizada.
 
     Args:
         driver: Instancia de WebDriver
@@ -412,48 +377,29 @@ def seleccionar_primera_opcion_dropdown(driver, dropdown_id: str, timeout: int =
         EC.presence_of_element_located((By.ID, dropdown_id))
     )
 
-    # Click en Select-control para abrir el dropdown
+    # Click para abrir el dropdown
     try:
         select_control = dropdown_container.find_element(By.CLASS_NAME, "Select-control")
         select_control.click()
-        time.sleep(0.5)
     except NoSuchElementException:
         dropdown_container.click()
-        time.sleep(0.5)
 
-    # Esperar a que aparezca el menú de opciones
+    # Esperar brevemente y seleccionar primera opción
+    time.sleep(0.3)
+
     try:
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "Select-menu")))
-        time.sleep(0.3)
-    except TimeoutException:
+        opciones = driver.find_elements(By.CSS_SELECTOR, ".Select-option")
+        if opciones:
+            opciones[0].click()
+            return
+    except:
         pass
 
-    # Buscar la primera opción disponible
-    selectores_opciones = [
-        ".Select-menu .Select-option",
-        ".Select-option",
-        "[class*='VirtualizedSelectOption']",
-        "[role='option']"
-    ]
-
-    for selector in selectores_opciones:
-        try:
-            opciones = driver.find_elements(By.CSS_SELECTOR, selector)
-            if opciones:
-                # Seleccionar la primera opción
-                opciones[0].click()
-                time.sleep(DELAY_ENTRE_ACCIONES)
-                return
-        except:
-            pass
-
-    # Si no encontramos opciones, intentar con flecha abajo + Enter
+    # Fallback: flecha abajo + Enter
     try:
         dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "input[role='combobox']")
         dropdown_input.send_keys(Keys.ARROW_DOWN)
-        time.sleep(0.3)
         dropdown_input.send_keys(Keys.ENTER)
-        time.sleep(DELAY_ENTRE_ACCIONES)
     except:
         pass
 
@@ -749,15 +695,15 @@ def descargar_reportes_dz(
 
                 # 5. Generar y descargar reporte
                 print("  [5/5] Generando reporte PDF...")
+
+                # Obtener lista de PDFs ANTES de descargar para detectar el nuevo
+                pdfs_antes = obtener_pdfs_existentes(directorio_salida)
+
                 hacer_click_boton(driver, boton_id=ID_BOTON_REPORTE)
 
-                # Intentar manejar el diálogo de descarga de Chrome si aparece
-                time.sleep(2)  # Esperar a que aparezca el diálogo
-                manejar_dialogo_descarga(driver)
-
-                # Esperar descarga (pasando driver para manejar diálogos)
-                print(f"  [    ] Esperando descarga del PDF (timeout ajustado para {dias} días)...")
-                if esperar_descarga_completa(directorio_salida, TIMEOUT_GENERACION_REPORTE, driver, dias):
+                # Esperar descarga (comparando con PDFs anteriores)
+                print(f"  [    ] Esperando descarga del PDF...")
+                if esperar_descarga_completa(directorio_salida, TIMEOUT_GENERACION_REPORTE, driver, dias, pdfs_antes):
                     print(f"  [OK] Reporte DZ {dz_num} descargado correctamente")
                     reportes_descargados.append(dz_num)
 
