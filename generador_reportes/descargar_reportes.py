@@ -300,7 +300,7 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
     """
     Selecciona un valor en un dropdown searchable de Dash (dcc.Dropdown).
 
-    Versión optimizada: escribe el valor y presiona Enter directamente.
+    Busca coincidencia EXACTA para evitar que "DZ 1" seleccione "DZ 10".
 
     Args:
         driver: Instancia de WebDriver
@@ -338,8 +338,19 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
     # Escribir el valor para filtrar
     dropdown_input.send_keys(Keys.CONTROL + "a")
     dropdown_input.send_keys(valor)
+    time.sleep(0.3)  # Esperar a que se filtren las opciones
 
-    # Usar flecha abajo + Enter (más rápido que buscar opciones)
+    # Buscar la opción con coincidencia EXACTA
+    try:
+        opciones = driver.find_elements(By.CSS_SELECTOR, ".Select-option")
+        for opcion in opciones:
+            if opcion.text.strip() == valor:  # Coincidencia exacta
+                opcion.click()
+                return
+    except:
+        pass
+
+    # Si no encontramos exacta, usar Arrow_Down + Enter como fallback
     dropdown_input.send_keys(Keys.ARROW_DOWN)
     dropdown_input.send_keys(Keys.ENTER)
 
