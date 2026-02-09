@@ -218,20 +218,25 @@ def manejar_dialogo_descarga(driver, timeout: int = 5):
     return False
 
 
-def esperar_descarga_completa(directorio: Path, timeout: int = 30, driver=None) -> bool:
+def esperar_descarga_completa(directorio: Path, timeout: int = 60, driver=None, dias: int = 7) -> bool:
     """
     Espera hasta que se complete la descarga del archivo PDF.
 
-    Simplificado: busca cualquier PDF modificado en los últimos 30 segundos.
+    Busca PDFs modificados DESPUÉS de iniciar la espera.
+    El timeout se ajusta automáticamente según el período.
 
     Args:
         directorio: Directorio donde se descarga el archivo
-        timeout: Tiempo máximo de espera en segundos (default: 30)
+        timeout: Tiempo máximo de espera base en segundos
         driver: Instancia de WebDriver para manejar diálogos
+        dias: Período en días para ajustar timeout
 
     Returns:
         bool: True si la descarga se completó, False si hubo timeout
     """
+    # Ajustar timeout según período (PDFs de 30 días son más grandes)
+    if dias > 7:
+        timeout = int(timeout * 1.5)
     tiempo_inicio = time.time()
     intentos_dialogo = 0
 
@@ -248,13 +253,12 @@ def esperar_descarga_completa(directorio: Path, timeout: int = 30, driver=None) 
             time.sleep(2)
             continue
 
-        # Buscar PDFs modificados en los últimos 30 segundos
-        ahora = time.time()
+        # Buscar PDFs modificados DESPUÉS de tiempo_inicio
         for pdf in directorio.glob("*.pdf"):
             try:
                 mtime = pdf.stat().st_mtime
-                edad_segundos = ahora - mtime
-                if edad_segundos < 30 and pdf.stat().st_size > 1000:
+                # Si el PDF fue modificado después de que empezamos a esperar
+                if mtime >= tiempo_inicio and pdf.stat().st_size > 1000:
                     return True
             except:
                 pass
@@ -540,35 +544,113 @@ def hacer_click_boton(driver, boton_texto: str = None, boton_id: str = None, tim
     time.sleep(DELAY_ENTRE_ACCIONES)
 
 
-def esperar_carga_datos(driver, timeout: int = TIMEOUT_CARGA_DATOS):
+def esperar_carga_datos(driver, timeout: int = TIMEOUT_CARGA_DATOS, dias: int = 7):
     """
-    Espera a que los datos se carguen en la página.
+    Espera dinámicamente a que los datos se carguen en la página.
 
-    Busca indicadores de que la tabla de datos está presente y cargada.
+    Detecta indicadores de carga (spinners, texto "cargando") y espera
+    hasta que desaparezcan y haya datos reales en la tabla.
+
+    El timeout se ajusta automáticamente según el período:
+    - 7 días: usa el timeout base
+    - 30 días: usa timeout * 2 (más datos = más tiempo de carga)
 
     Args:
         driver: Instancia de WebDriver
-        timeout: Tiempo máximo de espera
+        timeout: Tiempo máximo de espera base
+        dias: Período en días (7 o 30) para ajustar timeout
 
     Returns:
         bool: True si los datos cargaron correctamente
     """
-    wait = WebDriverWait(driver, timeout)
+    # Ajustar timeout según período
+    if dias > 7:
+        timeout = int(timeout * 2)  # Duplicar para períodos largos
+    tiempo_inicio = time.time()
+    datos_encontrados = False
+    ultimo_conteo_filas = 0
+    filas_estables_por = 0  # Segundos que el conteo de filas ha sido estable
 
-    try:
-        # Esperar a que aparezca la tabla de monitoreo
-        # Ajustar el selector según la estructura real del HTML
-        wait.until(
-            EC.presence_of_element_located((By.XPATH, "//table | //div[contains(@class, 'dash-table')]"))
-        )
+    # Selectores de indicadores de carga comunes en Dash
+    selectores_carga = [
+        ".dash-loading",
+        ".loading",
+        "[class*='loading']",
+        "[class*='spinner']",
+        ".dash-spinner",
+        "._dash-loading",
+        "[data-dash-is-loading='true']"
+    ]
 
-        # Esperar un poco más para asegurar que los datos estén completamente cargados
-        time.sleep(3)
-        return True
+    # Selectores de tablas de datos
+    selectores_tabla = [
+        "//table//tbody//tr",
+        "//div[contains(@class, 'dash-table')]//div[contains(@class, 'row')]",
+        "//table//tr[td]",
+        ".dash-spreadsheet-container .dash-spreadsheet-inner tbody tr",
+        ".cell-table tbody tr"
+    ]
 
-    except TimeoutException:
-        print("  [ADVERTENCIA] Timeout esperando carga de datos")
-        return False
+    print("  [    ] Detectando carga de datos...")
+
+    while time.time() - tiempo_inicio < timeout:
+        # 1. Verificar si hay indicadores de carga activos
+        cargando = False
+        for selector in selectores_carga:
+            try:
+                elementos_carga = driver.find_elements(By.CSS_SELECTOR, selector)
+                for elem in elementos_carga:
+                    if elem.is_displayed():
+                        cargando = True
+                        break
+            except:
+                pass
+            if cargando:
+                break
+
+        if cargando:
+            time.sleep(1)
+            continue
+
+        # 2. Buscar filas de datos en la tabla
+        conteo_filas = 0
+        for selector in selectores_tabla:
+            try:
+                if selector.startswith("//"):
+                    filas = driver.find_elements(By.XPATH, selector)
+                else:
+                    filas = driver.find_elements(By.CSS_SELECTOR, selector)
+
+                if filas:
+                    # Contar filas que tengan contenido visible
+                    filas_con_datos = [f for f in filas if f.text.strip()]
+                    conteo_filas = max(conteo_filas, len(filas_con_datos))
+            except:
+                pass
+
+        # 3. Verificar estabilidad de datos (los datos dejaron de cambiar)
+        if conteo_filas > 0:
+            if conteo_filas == ultimo_conteo_filas:
+                filas_estables_por += 1
+                # Si hay datos y han sido estables por 3 segundos, consideramos que cargó
+                if filas_estables_por >= 3:
+                    transcurrido = time.time() - tiempo_inicio
+                    print(f"  [    ] Datos cargados: {conteo_filas} filas detectadas ({transcurrido:.1f}s)")
+                    return True
+            else:
+                # Los datos están cambiando, resetear contador de estabilidad
+                filas_estables_por = 0
+                ultimo_conteo_filas = conteo_filas
+
+        time.sleep(1)
+
+    # Si llegamos aquí, hubo timeout
+    if ultimo_conteo_filas > 0:
+        print(f"  [ADVERTENCIA] Timeout pero se encontraron {ultimo_conteo_filas} filas")
+        return True  # Asumir que cargó si hay algunos datos
+
+    print("  [ADVERTENCIA] Timeout esperando carga de datos - no se detectaron filas")
+    return False
 
 
 # =============================================================================
@@ -658,9 +740,9 @@ def descargar_reportes_dz(
                 # NOTA: NO hacer click en "CONSULTAR RANGO DE FECHAS" porque cambia el período a 30 días
                 # Los datos cargan automáticamente al seleccionar las fechas
 
-                # Esperar carga de datos
-                print("  [    ] Esperando carga de datos...")
-                if not esperar_carga_datos(driver):
+                # Esperar carga de datos (timeout ajustado según período)
+                print(f"  [    ] Esperando carga de datos (período: {dias} días)...")
+                if not esperar_carga_datos(driver, dias=dias):
                     print(f"  [ERROR] No se pudieron cargar los datos para DZ {dz_num}")
                     reportes_fallidos.append(dz_num)
                     continue
@@ -674,8 +756,8 @@ def descargar_reportes_dz(
                 manejar_dialogo_descarga(driver)
 
                 # Esperar descarga (pasando driver para manejar diálogos)
-                print("  [    ] Esperando descarga del PDF...")
-                if esperar_descarga_completa(directorio_salida, TIMEOUT_GENERACION_REPORTE, driver):
+                print(f"  [    ] Esperando descarga del PDF (timeout ajustado para {dias} días)...")
+                if esperar_descarga_completa(directorio_salida, TIMEOUT_GENERACION_REPORTE, driver, dias):
                     print(f"  [OK] Reporte DZ {dz_num} descargado correctamente")
                     reportes_descargados.append(dz_num)
 
