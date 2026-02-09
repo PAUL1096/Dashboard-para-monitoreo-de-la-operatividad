@@ -50,10 +50,10 @@ SISMOP_URL = "http://172.25.150.27:8050/"
 TOTAL_DZS = 13
 
 # Tiempo máximo de espera para carga de datos (segundos)
-TIMEOUT_CARGA_DATOS = 120
+TIMEOUT_CARGA_DATOS = 30
 
-# Tiempo máximo de espera para generación de reporte (segundos)
-TIMEOUT_GENERACION_REPORTE = 180
+# Tiempo máximo de espera para descarga de PDF (segundos)
+TIMEOUT_GENERACION_REPORTE = 60
 
 # Tiempo de espera entre acciones (segundos) - reducido para mayor velocidad
 DELAY_ENTRE_ACCIONES = 0.5
@@ -335,28 +335,12 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
     except NoSuchElementException:
         dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
 
-    # Escribir el valor y presionar Enter (método rápido)
+    # Escribir el valor para filtrar
     dropdown_input.send_keys(Keys.CONTROL + "a")
     dropdown_input.send_keys(valor)
 
-    # Esperar brevemente a que aparezcan opciones y seleccionar la correcta
-    time.sleep(0.3)
-
-    # Buscar la opción exacta en el menú
-    try:
-        opciones = driver.find_elements(By.CSS_SELECTOR, ".Select-option")
-        for opcion in opciones:
-            if opcion.text.strip().lower() == valor.lower():
-                opcion.click()
-                return
-        # Si no hay exacta, usar la primera
-        if opciones:
-            opciones[0].click()
-            return
-    except:
-        pass
-
-    # Fallback: Enter para seleccionar
+    # Usar flecha abajo + Enter (más rápido que buscar opciones)
+    dropdown_input.send_keys(Keys.ARROW_DOWN)
     dropdown_input.send_keys(Keys.ENTER)
 
 
@@ -384,18 +368,7 @@ def seleccionar_primera_opcion_dropdown(driver, dropdown_id: str, timeout: int =
     except NoSuchElementException:
         dropdown_container.click()
 
-    # Esperar brevemente y seleccionar primera opción
-    time.sleep(0.3)
-
-    try:
-        opciones = driver.find_elements(By.CSS_SELECTOR, ".Select-option")
-        if opciones:
-            opciones[0].click()
-            return
-    except:
-        pass
-
-    # Fallback: flecha abajo + Enter
+    # Flecha abajo + Enter para seleccionar primera opción
     try:
         dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "input[role='combobox']")
         dropdown_input.send_keys(Keys.ARROW_DOWN)
@@ -490,113 +463,49 @@ def hacer_click_boton(driver, boton_texto: str = None, boton_id: str = None, tim
     time.sleep(DELAY_ENTRE_ACCIONES)
 
 
-def esperar_carga_datos(driver, timeout: int = TIMEOUT_CARGA_DATOS, dias: int = 7):
+def esperar_carga_datos(driver, timeout: int = 30, dias: int = 7):
     """
-    Espera dinámicamente a que los datos se carguen en la página.
+    Espera a que los datos se carguen en la página.
 
-    Detecta indicadores de carga (spinners, texto "cargando") y espera
-    hasta que desaparezcan y haya datos reales en la tabla.
-
-    El timeout se ajusta automáticamente según el período:
-    - 7 días: usa el timeout base
-    - 30 días: usa timeout * 2 (más datos = más tiempo de carga)
+    Versión simplificada: espera a que aparezca cualquier tabla con datos.
 
     Args:
         driver: Instancia de WebDriver
-        timeout: Tiempo máximo de espera base
-        dias: Período en días (7 o 30) para ajustar timeout
+        timeout: Tiempo máximo de espera (default 30s - suficiente para carga normal)
+        dias: No usado, mantenido por compatibilidad
 
     Returns:
         bool: True si los datos cargaron correctamente
     """
-    # Ajustar timeout según período
-    if dias > 7:
-        timeout = int(timeout * 2)  # Duplicar para períodos largos
     tiempo_inicio = time.time()
-    datos_encontrados = False
-    ultimo_conteo_filas = 0
-    filas_estables_por = 0  # Segundos que el conteo de filas ha sido estable
-
-    # Selectores de indicadores de carga comunes en Dash
-    selectores_carga = [
-        ".dash-loading",
-        ".loading",
-        "[class*='loading']",
-        "[class*='spinner']",
-        ".dash-spinner",
-        "._dash-loading",
-        "[data-dash-is-loading='true']"
-    ]
 
     # Selectores de tablas de datos
-    selectores_tabla = [
-        "//table//tbody//tr",
-        "//div[contains(@class, 'dash-table')]//div[contains(@class, 'row')]",
+    selectores = [
+        "//table//tbody//tr[td]",
         "//table//tr[td]",
-        ".dash-spreadsheet-container .dash-spreadsheet-inner tbody tr",
-        ".cell-table tbody tr"
+        ".dash-spreadsheet-container tbody tr"
     ]
 
-    print("  [    ] Detectando carga de datos...")
-
     while time.time() - tiempo_inicio < timeout:
-        # 1. Verificar si hay indicadores de carga activos
-        cargando = False
-        for selector in selectores_carga:
-            try:
-                elementos_carga = driver.find_elements(By.CSS_SELECTOR, selector)
-                for elem in elementos_carga:
-                    if elem.is_displayed():
-                        cargando = True
-                        break
-            except:
-                pass
-            if cargando:
-                break
-
-        if cargando:
-            time.sleep(1)
-            continue
-
-        # 2. Buscar filas de datos en la tabla
-        conteo_filas = 0
-        for selector in selectores_tabla:
+        for selector in selectores:
             try:
                 if selector.startswith("//"):
                     filas = driver.find_elements(By.XPATH, selector)
                 else:
                     filas = driver.find_elements(By.CSS_SELECTOR, selector)
 
-                if filas:
-                    # Contar filas que tengan contenido visible
-                    filas_con_datos = [f for f in filas if f.text.strip()]
-                    conteo_filas = max(conteo_filas, len(filas_con_datos))
+                # Si encontramos filas con datos, la tabla cargó
+                if len(filas) > 5:  # Al menos algunas filas
+                    transcurrido = time.time() - tiempo_inicio
+                    print(f"  [    ] Datos cargados: {len(filas)} filas ({transcurrido:.1f}s)")
+                    return True
             except:
                 pass
 
-        # 3. Verificar estabilidad de datos (los datos dejaron de cambiar)
-        if conteo_filas > 0:
-            if conteo_filas == ultimo_conteo_filas:
-                filas_estables_por += 1
-                # Si hay datos y han sido estables por 3 segundos, consideramos que cargó
-                if filas_estables_por >= 3:
-                    transcurrido = time.time() - tiempo_inicio
-                    print(f"  [    ] Datos cargados: {conteo_filas} filas detectadas ({transcurrido:.1f}s)")
-                    return True
-            else:
-                # Los datos están cambiando, resetear contador de estabilidad
-                filas_estables_por = 0
-                ultimo_conteo_filas = conteo_filas
+        time.sleep(0.5)
 
-        time.sleep(1)
-
-    # Si llegamos aquí, hubo timeout
-    if ultimo_conteo_filas > 0:
-        print(f"  [ADVERTENCIA] Timeout pero se encontraron {ultimo_conteo_filas} filas")
-        return True  # Asumir que cargó si hay algunos datos
-
-    print("  [ADVERTENCIA] Timeout esperando carga de datos - no se detectaron filas")
-    return False
+    print(f"  [ADVERTENCIA] Timeout esperando datos ({timeout}s)")
+    return True  # Continuar de todos modos
 
 
 # =============================================================================
@@ -683,12 +592,10 @@ def descargar_reportes_dz(
                 print(f"  [4/5] Configurando fecha fin: {fecha_fin_sismop.strftime('%d/%m/%Y')}...")
                 seleccionar_fecha_dash(driver, "End Date", fecha_fin_sismop)
 
-                # NOTA: NO hacer click en "CONSULTAR RANGO DE FECHAS" porque cambia el período a 30 días
                 # Los datos cargan automáticamente al seleccionar las fechas
-
-                # Esperar carga de datos (timeout ajustado según período)
-                print(f"  [    ] Esperando carga de datos (período: {dias} días)...")
-                if not esperar_carga_datos(driver, dias=dias):
+                # Esperar carga de datos
+                print("  [    ] Esperando carga de datos...")
+                if not esperar_carga_datos(driver):
                     print(f"  [ERROR] No se pudieron cargar los datos para DZ {dz_num}")
                     reportes_fallidos.append(dz_num)
                     continue
