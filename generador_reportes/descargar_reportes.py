@@ -300,8 +300,6 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
     """
     Selecciona un valor en un dropdown searchable de Dash (dcc.Dropdown).
 
-    Busca coincidencia EXACTA recorriendo todas las opciones.
-
     Args:
         driver: Instancia de WebDriver
         dropdown_id: ID del componente dropdown
@@ -315,11 +313,10 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
         EC.presence_of_element_located((By.ID, dropdown_id))
     )
 
-    # Limpiar selección existente si hay
+    # Limpiar selección existente
     try:
         clear_button = dropdown_container.find_element(By.CLASS_NAME, "Select-clear")
         clear_button.click()
-        time.sleep(0.2)
     except NoSuchElementException:
         pass
 
@@ -330,39 +327,48 @@ def seleccionar_dropdown_dash(driver, dropdown_id: str, valor: str, timeout: int
     except NoSuchElementException:
         dropdown_container.click()
 
-    time.sleep(0.3)  # Esperar a que aparezcan las opciones
-
-    # Buscar la opción exacta en la lista completa
-    try:
-        opciones = driver.find_elements(By.CSS_SELECTOR, ".Select-option")
-        for opcion in opciones:
-            texto = opcion.text.strip()
-            if texto == valor:  # Coincidencia exacta
-                # Scroll a la opción si es necesario
-                driver.execute_script("arguments[0].scrollIntoView(true);", opcion)
-                time.sleep(0.1)
-                opcion.click()
-                return
-    except Exception as e:
-        print(f"  [ERROR] Buscando opciones: {e}")
-
-    # Si no encontramos, intentar escribiendo el valor exacto
+    # Buscar el input
     try:
         dropdown_input = dropdown_container.find_element(By.CSS_SELECTOR, "input[role='combobox']")
-        dropdown_input.send_keys(Keys.CONTROL + "a")
-        dropdown_input.send_keys(valor)
-        time.sleep(0.5)
+    except NoSuchElementException:
+        dropdown_input = dropdown_container.find_element(By.TAG_NAME, "input")
 
-        # Buscar nuevamente después de filtrar
-        opciones = driver.find_elements(By.CSS_SELECTOR, ".Select-option")
-        for opcion in opciones:
-            if opcion.text.strip() == valor:
-                opcion.click()
-                return
-    except:
-        pass
+    # Escribir el valor para filtrar
+    dropdown_input.send_keys(Keys.CONTROL + "a")
+    dropdown_input.send_keys(valor)
+    time.sleep(0.5)
 
-    print(f"  [ADVERTENCIA] No se pudo seleccionar '{valor}' exactamente")
+    # Buscar opción exacta usando JavaScript (más confiable con virtualización)
+    js_click = """
+    var opciones = document.querySelectorAll('.VirtualizedSelectOption, .Select-option');
+    for (var i = 0; i < opciones.length; i++) {
+        if (opciones[i].textContent.trim() === arguments[0]) {
+            opciones[i].click();
+            return true;
+        }
+    }
+    return false;
+    """
+
+    encontrado = driver.execute_script(js_click, valor)
+    if encontrado:
+        return
+
+    # Si no encontramos con JS, intentar con Selenium
+    selectores = [".VirtualizedSelectOption", ".Select-option"]
+    for selector in selectores:
+        try:
+            opciones = driver.find_elements(By.CSS_SELECTOR, selector)
+            for opcion in opciones:
+                if opcion.text.strip() == valor:
+                    opcion.click()
+                    return
+        except:
+            pass
+
+    # Fallback: cerrar dropdown con Escape y reportar
+    dropdown_input.send_keys(Keys.ESCAPE)
+    print(f"  [ADVERTENCIA] No se encontró '{valor}' - verificar manualmente")
 
 
 def seleccionar_primera_opcion_dropdown(driver, dropdown_id: str, timeout: int = 10):
