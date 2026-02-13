@@ -315,8 +315,15 @@ class DataProcessor:
         """
         df_proc = df.copy()
         
-        # Crear ID único
-        df_proc['variable_id'] = df_proc.apply(cls.crear_id_sensor_unico, axis=1)
+        # Crear ID único: Estacion_Sensor_Variable_Frecuencia
+        def crear_variable_id(row):
+            est = str(row.get('Estacion', '')).strip()
+            sen = str(row.get('Sensor', '')).strip()
+            var = str(row.get('Variable', '')).strip()
+            frec = str(row.get('Frecuencia', '')).strip()
+            return f"{est}_{sen}_{var}_{frec}"
+
+        df_proc['variable_id'] = df_proc.apply(crear_variable_id, axis=1)
         
         # Cálculos de datos
         df_proc['datos_recibidos'] = (
@@ -444,6 +451,200 @@ class DataProcessor:
         """
         return df[df['prioridad'] == prioridad].copy()
     
+    @staticmethod
+    def detectar_problemas_ocultos(
+        df_variables: pd.DataFrame,
+        df_sensores: pd.DataFrame,
+        df_estaciones: pd.DataFrame,
+        umbral: float = 80.0
+    ) -> pd.DataFrame:
+        """
+        Detecta problemas ocultos en la jerarquía Estación → Sensor → Variable.
+
+        Jerarquía real del Excel:
+          POR ESTACION  : una fila por (DZ, Estacion)
+          POR EQUIPAMIENTO: una fila por (DZ, Estacion, Sensor)
+          POR VARIABLE  : una fila por (DZ, Estacion, Sensor, Variable, Frecuencia)
+          Join sensor↔variable: (DZ, Estacion, Sensor)
+
+        Dos tipos de problema oculto:
+          1. Sensor oculto  : estacion >= umbral  PERO  sensor < umbral
+             brecha = disponibilidad_estacion - disponibilidad_sensor
+          2. Variable oculta: sensor >= umbral    PERO  variable < umbral
+             (independiente del estado de la estación)
+             brecha = disponibilidad_sensor - disponibilidad_variable
+             Se excluyen variables cuyo sensor ya es crítico (tipo 1)
+             para evitar ruido redundante.
+
+        Solo se analizan items con disponibilidad <= 100% (los >100% van a
+        detectar_anomalias_configuracion).
+
+        Returns:
+            DataFrame con columnas:
+              DZ, Estacion, Sensor, disponibilidad_referencia, disponibilidad_estacion,
+              nivel ('Sensor' | 'Variable'), nombre, disponibilidad_item,
+              brecha, es_significativa (brecha >= 30 pts)
+        """
+        col_empty = [
+            'DZ', 'Estacion', 'Sensor', 'disponibilidad_referencia',
+            'disponibilidad_estacion', 'nivel', 'nombre',
+            'disponibilidad_item', 'brecha', 'es_significativa'
+        ]
+
+        # Trabajar solo con disponibilidades <= 100%
+        df_sens = df_sensores[df_sensores['disponibilidad_norm'] <= 100.0].copy()
+        df_var  = df_variables[df_variables['disponibilidad_norm'] <= 100.0].copy()
+
+        # Tabla base de estaciones (disponibilidad normalizada)
+        est_base = df_estaciones[['DZ', 'Estacion', 'disponibilidad_norm']].copy()
+        est_base = est_base.rename(columns={'disponibilidad_norm': 'disponibilidad_estacion'})
+
+        resultados = []
+
+        # ── Tipo 1: Sensor oculto (estación OK pero sensor crítico) ──────────
+        est_ok = est_base[est_base['disponibilidad_estacion'] >= umbral]
+
+        sens_criticos = df_sens[df_sens['disponibilidad_norm'] < umbral][
+            ['DZ', 'Estacion', 'Sensor', 'disponibilidad_norm']
+        ].copy()
+
+        if len(sens_criticos) > 0:
+            m = est_ok.merge(sens_criticos, on=['DZ', 'Estacion'], how='inner')
+            if len(m) > 0:
+                m['nivel'] = 'Sensor'
+                m['nombre'] = m['Sensor']
+                m['disponibilidad_item'] = m['disponibilidad_norm']
+                m['disponibilidad_referencia'] = m['disponibilidad_estacion']
+                resultados.append(m[[
+                    'DZ', 'Estacion', 'Sensor', 'disponibilidad_referencia',
+                    'disponibilidad_estacion', 'nivel', 'nombre', 'disponibilidad_item'
+                ]])
+
+        # ── Tipo 2: Variable oculta (sensor OK pero variable crítica) ────────
+        # Base: sensores con disponibilidad >= umbral
+        sens_ok = df_sens[df_sens['disponibilidad_norm'] >= umbral][
+            ['DZ', 'Estacion', 'Sensor', 'disponibilidad_norm']
+        ].copy()
+        sens_ok = sens_ok.rename(columns={'disponibilidad_norm': 'disponibilidad_sensor'})
+
+        # Variables con 'Variable' como columna de nombre individual
+        col_var_nombre = 'Variable' if 'Variable' in df_var.columns else 'Sensor'
+        var_criticas = df_var[df_var['disponibilidad_norm'] < umbral][
+            ['DZ', 'Estacion', 'Sensor', col_var_nombre, 'Frecuencia', 'disponibilidad_norm']
+        ].drop_duplicates().copy()
+
+        if len(var_criticas) > 0 and len(sens_ok) > 0:
+            m2 = sens_ok.merge(var_criticas, on=['DZ', 'Estacion', 'Sensor'], how='inner')
+            if len(m2) > 0:
+                # Agregar disponibilidad de estación para contexto
+                m2 = m2.merge(est_base, on=['DZ', 'Estacion'], how='left')
+                m2['nivel'] = 'Variable'
+                m2['nombre'] = m2[col_var_nombre].astype(str) + ' [' + m2['Frecuencia'].astype(str) + ']'
+                m2['disponibilidad_item'] = m2['disponibilidad_norm']
+                m2['disponibilidad_referencia'] = m2['disponibilidad_sensor']
+                resultados.append(m2[[
+                    'DZ', 'Estacion', 'Sensor', 'disponibilidad_referencia',
+                    'disponibilidad_estacion', 'nivel', 'nombre', 'disponibilidad_item'
+                ]])
+
+        if not resultados:
+            return pd.DataFrame(columns=col_empty)
+
+        df_result = pd.concat(resultados, ignore_index=True)
+        df_result['disponibilidad_estacion'] = df_result['disponibilidad_estacion'].fillna(0)
+        df_result['brecha'] = df_result['disponibilidad_referencia'] - df_result['disponibilidad_item']
+        df_result['es_significativa'] = df_result['brecha'] >= 30.0
+        df_result = df_result.sort_values('brecha', ascending=False).drop_duplicates()
+
+        return df_result
+
+    @staticmethod
+    def detectar_anomalias_configuracion(
+        df_variables: pd.DataFrame,
+        df_sensores: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        Detecta sensores y variables con disponibilidad > 100%.
+        Indica error de configuración (frecuencia incorrecta o datos esperados mal calculados).
+
+        Returns:
+            DataFrame con columnas:
+              DZ, Estacion, Sensor, nivel, nombre, disponibilidad_item, exceso
+        """
+        resultados = []
+
+        # Sensores > 100%
+        anomalos_s = df_sensores[df_sensores['disponibilidad'] > 100.0].copy()
+        if len(anomalos_s) > 0:
+            anomalos_s['nivel'] = 'Sensor'
+            anomalos_s['nombre'] = anomalos_s['Sensor']
+            anomalos_s['disponibilidad_item'] = anomalos_s['disponibilidad']
+            resultados.append(
+                anomalos_s[['DZ', 'Estacion', 'Sensor', 'nivel', 'nombre', 'disponibilidad_item']]
+            )
+
+        # Variables > 100%
+        col_var_nombre = 'Variable' if 'Variable' in df_variables.columns else 'Sensor'
+        anomalos_v = df_variables[df_variables['disponibilidad'] > 100.0].copy()
+        if len(anomalos_v) > 0:
+            anomalos_v['nivel'] = 'Variable'
+            freq_str = anomalos_v[col_var_nombre].astype(str)
+            if 'Frecuencia' in anomalos_v.columns:
+                freq_str = freq_str + ' [' + anomalos_v['Frecuencia'].astype(str) + ']'
+            anomalos_v['nombre'] = freq_str
+            anomalos_v['disponibilidad_item'] = anomalos_v['disponibilidad']
+            resultados.append(
+                anomalos_v[['DZ', 'Estacion', 'Sensor', 'nivel', 'nombre', 'disponibilidad_item']]
+            )
+
+        if not resultados:
+            return pd.DataFrame(columns=[
+                'DZ', 'Estacion', 'Sensor', 'nivel', 'nombre', 'disponibilidad_item', 'exceso'
+            ])
+
+        df_result = pd.concat(resultados, ignore_index=True)
+        df_result['exceso'] = df_result['disponibilidad_item'] - 100.0
+        df_result = df_result.sort_values(['DZ', 'Estacion', 'exceso'], ascending=[True, True, False])
+        df_result = df_result.drop_duplicates()
+
+        return df_result
+
+    @staticmethod
+    def calcular_metricas_radar_dz(
+        df_estaciones: pd.DataFrame,
+        df_ocultos: pd.DataFrame
+    ) -> pd.DataFrame:
+        """
+        Calcula métricas por DZ para el gráfico radar del resumen ejecutivo.
+
+        Returns:
+            DataFrame con columnas:
+              DZ, disponibilidad_prom, pct_operativas, pct_criticas,
+              n_incidencias, n_ocultos
+        """
+        dz_stats = df_estaciones.groupby('DZ').agg(
+            disponibilidad_prom=('disponibilidad_norm', 'mean'),
+            total=('Estacion', 'count'),
+            operativas=('disponibilidad_norm', lambda x: (x >= 80).sum()),
+            criticas=('disponibilidad_norm', lambda x: (x < 80).sum()),
+            incidencias=('prioridad', lambda x: (x.isin(['ALTA', 'MEDIA'])).sum()),
+        ).reset_index()
+
+        dz_stats['pct_operativas'] = dz_stats['operativas'] / dz_stats['total'] * 100
+        dz_stats['pct_criticas'] = dz_stats['criticas'] / dz_stats['total'] * 100
+
+        # Problemas ocultos por DZ
+        if len(df_ocultos) > 0:
+            ocultos_dz = df_ocultos.groupby('DZ')['Estacion'].nunique().reset_index()
+            ocultos_dz.columns = ['DZ', 'n_ocultos']
+            dz_stats = dz_stats.merge(ocultos_dz, on='DZ', how='left')
+        else:
+            dz_stats['n_ocultos'] = 0
+
+        dz_stats['n_ocultos'] = dz_stats['n_ocultos'].fillna(0)
+
+        return dz_stats
+
     @staticmethod
     def obtener_comentarios_con_incidencias(df_estaciones: pd.DataFrame) -> pd.DataFrame:
         """

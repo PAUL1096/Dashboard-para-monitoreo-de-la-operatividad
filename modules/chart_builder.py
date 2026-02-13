@@ -475,6 +475,250 @@ class ChartBuilder:
         return fig
     
     # ========================================================================
+    # GRÁFICOS DE ANÁLISIS AVANZADO (PROBLEMAS OCULTOS / RESUMEN)
+    # ========================================================================
+
+    @staticmethod
+    def crear_heatmap_variables_por_estacion(
+        df_variables: pd.DataFrame,
+        top_n: int = 30
+    ) -> go.Figure:
+        """
+        Heatmap Estación × Variable coloreado por disponibilidad.
+        Muestra estaciones con al menos una variable crítica (<80%).
+        """
+        # Columna de nombre de variable individual: 'Variable' o fallback 'Sensor'
+        col_var = 'Variable' if 'Variable' in df_variables.columns else 'Sensor'
+
+        # Seleccionar estaciones con variables críticas (más informativo)
+        est_con_criticas = df_variables[
+            df_variables['disponibilidad_norm'] < 80
+        ]['Estacion'].unique()
+
+        df_sub = df_variables[df_variables['Estacion'].isin(est_con_criticas)].copy()
+
+        # Limitar a top_n estaciones con más variables críticas
+        conteo = (
+            df_sub[df_sub['disponibilidad_norm'] < 80]
+            .groupby('Estacion')[col_var]
+            .count()
+            .nlargest(top_n)
+        )
+        df_sub = df_sub[df_sub['Estacion'].isin(conteo.index)]
+
+        if len(df_sub) == 0:
+            fig = go.Figure()
+            fig.add_annotation(text="No hay datos para mostrar", x=0.5, y=0.5,
+                               xref='paper', yref='paper', showarrow=False)
+            return fig
+
+        # Etiqueta de variable: nombre + frecuencia si existe
+        if 'Frecuencia' in df_sub.columns:
+            df_sub = df_sub.copy()
+            df_sub['_var_label'] = df_sub[col_var].astype(str) + '\n[' + df_sub['Frecuencia'].astype(str) + ']'
+        else:
+            df_sub['_var_label'] = df_sub[col_var].astype(str)
+
+        # Pivot: estaciones × variables
+        pivot = df_sub.pivot_table(
+            index='Estacion',
+            columns='_var_label',
+            values='disponibilidad_norm',
+            aggfunc='mean'
+        )
+
+        # Ordenar estaciones por disponibilidad promedio (peores arriba)
+        pivot = pivot.loc[pivot.mean(axis=1).sort_values().index]
+
+        fig = go.Figure(data=go.Heatmap(
+            z=pivot.values,
+            x=pivot.columns.tolist(),
+            y=pivot.index.tolist(),
+            colorscale='RdYlGn',
+            zmin=0,
+            zmax=100,
+            colorbar=dict(
+                title='Disp. (%)',
+                tickvals=[0, 20, 40, 60, 80, 100],
+            ),
+            hovertemplate=(
+                '<b>Estación:</b> %{y}<br>'
+                '<b>Variable:</b> %{x}<br>'
+                '<b>Disponibilidad:</b> %{z:.1f}%<extra></extra>'
+            )
+        ))
+
+        fig.update_layout(
+            title='Heatmap: Disponibilidad por Estación y Variable',
+            xaxis=dict(title='Variable / Sensor', tickangle=-45, showgrid=False),
+            yaxis=dict(title='Estación', showgrid=False, autorange='reversed'),
+            height=max(400, len(pivot) * 22 + 120),
+            margin=dict(l=160, r=80, t=60, b=100),
+        )
+
+        return fig
+
+    @staticmethod
+    def crear_grafico_problemas_ocultos(df_ocultos: pd.DataFrame) -> go.Figure:
+        """
+        Barras horizontales comparando disponibilidad de la estación
+        vs disponibilidad del sensor/variable crítico (top 15 por brecha).
+        """
+        if len(df_ocultos) == 0:
+            fig = go.Figure()
+            fig.add_annotation(text="No se detectaron problemas ocultos",
+                               x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
+            return fig
+
+        top = df_ocultos.nlargest(15, 'brecha').copy()
+        top['etiqueta'] = (
+            top['Estacion'].astype(str) + ' — ' +
+            top['nivel'] + ': ' + top['nombre'].astype(str)
+        )
+
+        # Colores por significatividad
+        colores_item = [
+            '#EF4444' if sig else '#F59E0B'
+            for sig in top['es_significativa']
+        ]
+
+        fig = go.Figure()
+
+        # Barra de fondo: disponibilidad de la estación
+        fig.add_trace(go.Bar(
+            y=top['etiqueta'],
+            x=top['disponibilidad_estacion'],
+            orientation='h',
+            name='Disp. Estación',
+            marker_color='rgba(0,180,220,0.25)',
+            marker_line_color='rgba(0,180,220,0.6)',
+            marker_line_width=1,
+            hovertemplate='Estación: %{x:.1f}%<extra></extra>'
+        ))
+
+        # Barra frontal: disponibilidad del item crítico
+        fig.add_trace(go.Bar(
+            y=top['etiqueta'],
+            x=top['disponibilidad_item'],
+            orientation='h',
+            name='Disp. Sensor/Variable',
+            marker_color=colores_item,
+            marker_line_width=0,
+            hovertemplate='%{x:.1f}% (brecha: ' + top['brecha'].round(1).astype(str) + '%)<extra></extra>'
+        ))
+
+        # Línea de umbral 80%
+        fig.add_vline(
+            x=80, line_dash='dash', line_color='rgba(255,255,255,0.3)',
+            annotation_text='80%', annotation_font_size=10
+        )
+
+        fig.update_layout(
+            title='Estaciones OK con Sensores/Variables Críticos Ocultos',
+            barmode='overlay',
+            xaxis=dict(title='Disponibilidad (%)', range=[0, 105]),
+            yaxis=dict(title='', autorange='reversed'),
+            legend=dict(orientation='h', y=1.08, x=0),
+            height=max(400, len(top) * 32 + 120),
+            margin=dict(l=300, r=40, t=80, b=60),
+            annotations=[
+                dict(
+                    x=top.iloc[i]['disponibilidad_item'] + 1,
+                    y=top.iloc[i]['etiqueta'],
+                    text='⚠️' if top.iloc[i]['es_significativa'] else '',
+                    showarrow=False,
+                    font=dict(size=12),
+                    xanchor='left'
+                )
+                for i in range(len(top))
+            ]
+        )
+
+        return fig
+
+    @staticmethod
+    def crear_radar_dz(df_dz_radar: pd.DataFrame) -> go.Figure:
+        """
+        Gráfico radar (spider) comparando las DZs en múltiples dimensiones:
+        - Disponibilidad promedio
+        - % Estaciones operativas
+        - % Estaciones críticas (invertida: menor es mejor)
+        - Incidencias activas (invertida)
+        - Problemas ocultos (invertida)
+        """
+        if len(df_dz_radar) == 0:
+            fig = go.Figure()
+            fig.add_annotation(text="Sin datos para radar", x=0.5, y=0.5,
+                               xref='paper', yref='paper', showarrow=False)
+            return fig
+
+        # Normalizar métricas a 0-100 para que sean comparables en el radar
+        df = df_dz_radar.copy()
+        df['DZ_label'] = 'DZ ' + df['DZ'].astype(str)
+
+        def norm_0_100(s, invert=False):
+            mn, mx = s.min(), s.max()
+            if mx == mn:
+                return pd.Series([50.0] * len(s), index=s.index)
+            n = (s - mn) / (mx - mn) * 100
+            return 100 - n if invert else n
+
+        df['dim_disp'] = norm_0_100(df['disponibilidad_prom'])
+        df['dim_op'] = norm_0_100(df['pct_operativas'])
+        df['dim_crit'] = norm_0_100(df['pct_criticas'], invert=True)
+        df['dim_inci'] = norm_0_100(df['incidencias'], invert=True)
+        df['dim_ocultos'] = norm_0_100(df['n_ocultos'], invert=True)
+
+        categorias = [
+            'Disponibilidad', 'Operativas', 'Sin Críticas',
+            'Sin Incidencias', 'Sin Ocultos'
+        ]
+
+        colors = px.colors.qualitative.Set2[:len(df)]
+
+        fig = go.Figure()
+
+        for i, row in df.iterrows():
+            valores = [
+                row['dim_disp'], row['dim_op'], row['dim_crit'],
+                row['dim_inci'], row['dim_ocultos']
+            ]
+            # Cerrar el polígono
+            valores_cierre = valores + [valores[0]]
+            cats_cierre = categorias + [categorias[0]]
+
+            fig.add_trace(go.Scatterpolar(
+                r=valores_cierre,
+                theta=cats_cierre,
+                fill='toself',
+                name=row['DZ_label'],
+                line=dict(width=1.5),
+                opacity=0.6,
+                hovertemplate=(
+                    f"<b>{row['DZ_label']}</b><br>"
+                    f"Disponibilidad: {row['disponibilidad_prom']:.1f}%<br>"
+                    f"Operativas: {row['pct_operativas']:.1f}%<br>"
+                    f"Críticas: {row['pct_criticas']:.1f}%<br>"
+                    f"Incidencias: {int(row['incidencias'])}<br>"
+                    f"Ocultos: {int(row['n_ocultos'])}<extra></extra>"
+                )
+            ))
+
+        fig.update_layout(
+            title='Comparativa de DZs — Radar Multidimensional',
+            polar=dict(
+                radialaxis=dict(visible=True, range=[0, 100], showticklabels=False),
+                angularaxis=dict(tickfont=dict(size=11))
+            ),
+            showlegend=True,
+            legend=dict(orientation='v', x=1.05, y=0.5),
+            height=500,
+            margin=dict(l=60, r=160, t=60, b=60)
+        )
+
+        return fig
+
+    # ========================================================================
     # UTILIDADES DE GRÁFICOS
     # ========================================================================
     
@@ -567,46 +811,40 @@ def preparar_stats_tipo_sensor(df_sensores: pd.DataFrame) -> pd.DataFrame:
 
 def preparar_stats_variables(df_variables: pd.DataFrame) -> pd.DataFrame:
     """
-    Prepara estadísticas por variable meteorológica
-    
-    Args:
-        df_variables: DataFrame procesado de variables
-        
-    Returns:
-        DataFrame agregado con estadísticas por variable
+    Prepara estadísticas por variable meteorológica.
+    Agrupa por la columna 'Variable' (nombre individual) si existe, si no por 'Sensor'.
     """
-    var_stats = df_variables.groupby('Sensor').agg({
+    col_var = 'Variable' if 'Variable' in df_variables.columns else 'Sensor'
+
+    var_stats = df_variables.groupby(col_var).agg({
         'disponibilidad_norm': 'mean',
         'variable_id': 'count'
     }).reset_index()
-    
+
     var_stats.columns = ['Variable', 'Disponibilidad', 'Cantidad']
     var_stats = var_stats.sort_values('Disponibilidad')
-    
+
     return var_stats
 
 
 def preparar_stats_perdida_datos(df_variables: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     """
-    Prepara top N variables con mayor pérdida de datos
-    
-    Args:
-        df_variables: DataFrame procesado de variables
-        top_n: Número de variables a retornar
-        
-    Returns:
-        DataFrame con top N variables ordenadas por pérdida
+    Prepara top N variables con mayor pérdida de datos.
+    Agrupa por la columna 'Variable' (nombre individual) si existe, si no por 'Sensor'.
     """
-    perdida = df_variables.groupby('Sensor').agg({
+    col_var = 'Variable' if 'Variable' in df_variables.columns else 'Sensor'
+
+    perdida = df_variables.groupby(col_var).agg({
         'perdida_datos': 'sum',
         'Datos_esperados': 'sum'
     }).reset_index()
-    
+
     perdida['pct_perdida'] = (
         (perdida['perdida_datos'] / perdida['Datos_esperados'] * 100)
         .fillna(0)
     )
-    
+
     perdida = perdida.sort_values('pct_perdida', ascending=False).head(top_n)
-    
+    perdida = perdida.rename(columns={col_var: 'Sensor'})  # Mantener nombre de columna esperado
+
     return perdida
