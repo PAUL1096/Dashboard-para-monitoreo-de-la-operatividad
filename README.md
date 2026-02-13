@@ -2,19 +2,19 @@
 
 Dashboard interactivo para monitoreo de disponibilidad de red meteorológica del Sistema de Gestión de Riesgos (SGR).
 
-**Versión:** 2.2 (Mejoras Críticas)
+**Versión:** 3.0
 **Autor:** Sistema de Monitoreo Meteorológico - SGR
-**Fecha:** Diciembre 2025
+**Fecha:** Febrero 2026
 
 ---
 
 ## 📋 Tabla de Contenidos
 
 - [Características](#características)
-- [Requisitos](#requisitos)
-- [Instalación](#instalación)
+- [Entorno de Ejecución](#entorno-de-ejecución)
+- [Ejecución de Pipelines](#ejecución-de-pipelines)
+- [Ejecutar el Dashboard](#ejecutar-el-dashboard)
 - [Estructura del Proyecto](#estructura-del-proyecto)
-- [Uso](#uso)
 - [Estructura de Datos](#estructura-de-datos)
 - [Funcionalidades](#funcionalidades)
 - [Configuración](#configuración)
@@ -22,108 +22,172 @@ Dashboard interactivo para monitoreo de disponibilidad de red meteorológica del
 
 ---
 
+---
+
+## ⚠️ Entorno de Ejecución
+
+Todos los scripts (pipeline y dashboard) requieren el entorno conda **`proyecto_monitoreodash`**.
+
+**Activar antes de cualquier ejecución:**
+
+```bash
+# Abrir Anaconda Prompt desde el menú Inicio, luego:
+conda activate proyecto_monitoreodash
+cd "C:\Users\PAUL\OneDrive\Trabajo\SENAMHI - SGR\2026\automatización\Dashboard-para-monitoreo-de-la-operatividad"
+```
+
+> Sin este entorno activo, los comandos `python` y `streamlit` no encontrarán las dependencias.
+
+---
+
+## 🔄 Ejecución de Pipelines
+
+> **Requisito previo:** Estar conectado a la red interna (SISMOP disponible en `172.25.150.27`) y tener Chrome instalado para la descarga automática de PDFs.
+
+---
+
+### 🤖 Estaciones Automáticas — Todos los Viernes (7 días)
+
+Los reportes cubren el período viernes–jueves. Ejecutar el viernes por la mañana.
+
+**Caso habitual — pipeline completo desde cero:**
+```bash
+cd PIPELINE/automaticas
+python ejecutar_pipeline_auto.py
+```
+Descarga PDFs de las 13 DZs → extrae CSVs → calcula disponibilidad e incidencias.
+Tiempo estimado: ~15–20 minutos (la descarga es el paso más lento).
+
+**Si los PDFs ya fueron descargados** (descarga parcial o manual previa):
+```bash
+python ejecutar_pipeline_auto.py --skip-download
+```
+
+**Si solo cambiaron parámetros y los CSVs ya existen** (recalcular sin reextracción):
+```bash
+python ejecutar_pipeline_auto.py --solo-procesar
+```
+
+Reporte generado en:
+```
+DATA/automaticas/04_consolidados/reporte_disponibilidad_consolidado_DDMM_DDMM.xlsx
+```
+
+---
+
+### 📋 Estaciones Convencionales — Mensual / Trimestral / Semestral
+
+**Pipeline completo** (el script pedirá las fechas de inicio y fin durante la ejecución):
+```bash
+cd PIPELINE/convencionales
+python ejecutar_pipeline_conv.py
+```
+
+Periodos soportados: 30, 90 o 180 días según lo que se seleccione en SISMOP.
+
+**Si los PDFs ya están descargados:**
+```bash
+python ejecutar_pipeline_conv.py --skip-download
+```
+
+**Solo recalcular (CSVs ya existen):**
+```bash
+python ejecutar_pipeline_conv.py --solo-procesar
+```
+
+Reporte generado en:
+```
+DATA/convencionales/04_consolidados/reporte_disponibilidad_consolidado_convencional_*.xlsx
+```
+
+---
+
+### 📂 ¿Dónde quedan los datos intermedios?
+
+| Paso | Carpeta | Contenido |
+|------|---------|-----------|
+| 1. Descarga | `DATA/{tipo}/01_pdfs/` | PDFs descargados de SISMOP |
+| 2. Extracción | `DATA/{tipo}/02_csv/` | CSVs de disponibilidad y fallas |
+| 3. Procesamiento | `DATA/{tipo}/03_reportes/` | Reporte por semana/periodo |
+| 4. Consolidación | `DATA/{tipo}/04_consolidados/` | **Reporte final con historial** ⭐ |
+
+> `{tipo}` = `automaticas` o `convencionales`
+
+---
+
+## 🎯 Ejecutar el Dashboard
+
+Después de generar el reporte (o en cualquier momento para ver el histórico):
+
+```bash
+# Desde la raíz del proyecto, con el entorno activo:
+streamlit run main.py
+```
+
+El dashboard abre automáticamente en `http://localhost:8501` y **carga el reporte más reciente** de forma automática. También puedes subir un archivo diferente desde la barra lateral.
+
+---
+
 ## ✨ Características
 
-- 📊 **Análisis Integral**: Visualización de disponibilidad por estación, sensor y variable meteorológica
-- 🚨 **Sistema de Alertas Mejorado**: Clasificación automática de prioridades (ALTA/MEDIA/BAJA) con razones explicativas
-- 🗺️ **Filtro por Dirección Zonal**: Visualización focalizada por DZ o vista global de toda la red
-- ⚪ **Monitoreo de Paralizadas**: Sección dedicada para estaciones paralizadas con alertas de clausura (>2 años)
-- 📈 **Gráficos Interactivos**: 13+ visualizaciones con Plotly, incluyendo boxplot por tipo de sensor
-- 🔍 **Filtros Dinámicos**: Búsqueda y filtrado por múltiples criterios
-- 📥 **Exportación**: Descarga de datos en formato CSV
-- 🎨 **Interfaz Moderna**: Diseño responsive con Streamlit y CSS gradientes
-- ⚡ **Caché Inteligente**: Carga rápida de datos repetidos
-- 📝 **Seguimiento de Incidencias**: Monitoreo de comentarios técnicos con tarjetas expandibles
-- 🔤 **Validación Flexible**: Procesamiento case-insensitive de columnas Excel
-
----
-
-## 💻 Requisitos
-
-- Python 3.8 o superior
-- pip (gestor de paquetes de Python)
-
----
-
-## 🚀 Instalación
-
-### 1. Clonar o descargar el proyecto
-
-```bash
-cd dashboard_meteorologico
-```
-
-### 2. Crear entorno virtual (recomendado)
-
-```bash
-# Windows
-python -m venv venv
-venv\Scripts\activate
-
-# Linux/Mac
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### 3. Instalar dependencias
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Verificar instalación
-
-```bash
-streamlit --version
-```
+- 📊 **Resumen Ejecutivo**: KPIs globales + radar multidimensional por Dirección Zonal
+- 🚨 **Sistema de Alertas**: Clasificación automática ALTA/MEDIA/BAJA con razones explicativas
+- 🔍 **Detección de Problemas Ocultos**: Identifica sensores/variables críticos en estaciones aparentemente operativas
+- ⚙️ **Anomalías de Configuración**: Detecta items con disponibilidad >100% (error de frecuencia)
+- 🗺️ **Heatmap Estación × Variable**: Vista cruzada de disponibilidad por variable individual
+- 🌐 **Radar por DZ**: Comparativa multidimensional de las 13 Direcciones Zonales
+- 🎨 **Interfaz Centro de Control**: Tema oscuro con tipografía técnica (Bebas Neue + IBM Plex Mono)
+- ⚡ **Auto-carga**: El reporte más reciente se carga automáticamente al iniciar
+- 📥 **Exportación CSV**: Descarga disponible en cada sección
+- 🔤 **Validación Flexible**: Columnas Excel con matching case-insensitive
 
 ---
 
 ## 📁 Estructura del Proyecto
 
 ```
-dashboard_meteorologico/
+Dashboard-para-monitoreo-de-la-operatividad/
 │
-├── main.py                      # Aplicación principal ⭐
-├── config.py                    # Configuración centralizada
-├── requirements.txt             # Dependencias
-├── README.md                    # Este archivo
-├── .gitignore                   # Archivos ignorados por Git
+├── main.py                          # Dashboard Streamlit ⭐
+├── config.py                        # Configuración y estilos CSS
+├── requirements.txt                 # Dependencias del dashboard
+├── CLAUDE.md                        # Guía para desarrollo con IA
+├── README.md                        # Este archivo
 │
-├── modules/                     # Módulos de la aplicación
-│   ├── __init__.py             # Inicialización del paquete
-│   ├── file_handler.py         # Carga y validación de archivos
-│   ├── data_processor.py       # Procesamiento de datos
-│   ├── chart_builder.py        # Construcción de gráficos
-│   └── ui_components.py        # Componentes de interfaz
+├── modules/                         # Módulos del dashboard
+│   ├── file_handler.py             # Carga y validación de Excel
+│   ├── data_processor.py           # Cálculos y clasificaciones
+│   ├── chart_builder.py            # Gráficos Plotly
+│   └── ui_components.py            # Componentes de interfaz
 │
-└── reportes/                    # Carpeta de reportes Excel 📂
-    └── (tus archivos .xlsx aquí)
+├── PIPELINE/                        # Pipelines de procesamiento
+│   ├── compartido/
+│   │   └── extractor_pdf.py        # Extracción PDF (compartido)
+│   ├── automaticas/
+│   │   ├── ejecutar_pipeline_auto.py   # Orquestador ⭐
+│   │   ├── descargar_reportes.py
+│   │   ├── procesamiento.py
+│   │   └── config/
+│   │       └── variables_frecuencia.xlsx
+│   └── convencionales/
+│       ├── ejecutar_pipeline_conv.py   # Orquestador ⭐
+│       ├── descargar_reportes.py
+│       ├── procesamiento.py
+│       └── config/
+│           └── variables-instrumento-convencionales.xlsx
+│
+└── DATA/                            # Datos (no versionados en Git)
+    ├── automaticas/
+    │   ├── 01_pdfs/                # PDFs descargados de SISMOP
+    │   ├── 02_csv/                 # CSVs extraídos
+    │   ├── 03_reportes/            # Reportes semanales
+    │   └── 04_consolidados/        # Reportes finales ⭐
+    └── convencionales/
+        ├── 01_pdfs/
+        ├── 02_csv/
+        ├── 03_reportes/
+        └── 04_consolidados/        # Reportes finales ⭐
 ```
-
----
-
-## 🎯 Uso
-
-### Ejecutar la aplicación
-
-```bash
-streamlit run main.py
-```
-
-La aplicación se abrirá automáticamente en tu navegador en `http://localhost:8501`
-
-### Cargar datos
-
-Tienes dos opciones:
-
-#### Opción 1: Subir archivo
-1. Haz clic en **"Browse files"** en la barra lateral
-2. Selecciona tu archivo Excel
-
-#### Opción 2: Carpeta local
-1. Coloca tus archivos en la carpeta `reportes/`
-2. El dashboard cargará automáticamente el más reciente
 
 ---
 
@@ -153,15 +217,16 @@ Columnas requeridas:
 
 #### Hoja 3: **POR VARIABLE**
 Columnas requeridas:
-- `DZ`: Zona de defensa
+- `DZ`: Dirección Zonal
 - `Estacion`: Nombre de la estación
-- `Sensor`: Variable meteorológica
-- `frecuencia`: Frecuencia de medición
+- `Sensor`: Tipo de sensor al que pertenece la variable (ej: `s_humre`, `s_temp`)
+- `Variable`: Nombre individual de la variable meteorológica (ej: `N_MAXRH`, `N_MINAT`)
+- `Frecuencia`: Frecuencia de medición (`minuto`, `horario`, `diario`)
 - `disponibilidad`: % de disponibilidad
-- `var_disp`: Variación de disponibilidad
-- `Datos_flag_C`: Datos correctos
-- `Datos_flag_M`: Datos con error
-- `Datos_esperados`: Total de datos esperados
+- `var_disp`: Categoría de disponibilidad
+- `Datos_flag_C`: Datos correctos recibidos
+- `Datos_flag_M`: Datos con error (fuera de rango)
+- `Datos_esperados`: Total de datos esperados según frecuencia
 
 ### Formato de Nombre de Archivo
 
@@ -333,6 +398,32 @@ Para reportar problemas o sugerir mejoras:
 ---
 
 ## 📝 Notas de Versión
+
+### Versión 3.0 (Febrero 2026) - REDISEÑO Y ANÁLISIS AVANZADO
+
+**🎨 Interfaz:**
+- Tema oscuro tipo "Centro de Control Meteorológico" (Bebas Neue + IBM Plex Mono)
+- Paleta cian/rojo/ámbar con grid CSS, tarjetas animadas y scrollbar personalizada
+- Sidebar simplificado: auto-carga del reporte más reciente, sin controles redundantes
+- Nuevo orden de 6 tabs orientado a decisores
+
+**📊 Nuevas Visualizaciones:**
+- **Radar DZ**: Comparativa multidimensional de las 13 Direcciones Zonales
+- **Heatmap Estación × Variable**: Disponibilidad cruzada con RdYlGn
+- **Gráfico de Problemas Ocultos**: Barras comparativas referencia vs item crítico
+
+**🔍 Nuevas Funcionalidades de Análisis:**
+- **Tab Resumen Ejecutivo**: KPIs + radar DZ + top 5 situaciones urgentes
+- **Tab Problemas Ocultos**: Detección de sensores/variables críticos en estaciones con buena disponibilidad global
+  - Tipo 1: Estación ≥80% pero sensor <80% (brecha = disp\_estación − disp\_sensor)
+  - Tipo 2: Sensor ≥80% pero variable <80% (brecha = disp\_sensor − disp\_variable)
+  - Sin duplicados: variables cuyo sensor ya es crítico no se repiten
+- **Anomalías de Configuración**: Sección separada para items con disponibilidad >100%
+
+**🔧 Correcciones de Datos:**
+- Columna `Variable` ahora reconocida correctamente en hoja POR VARIABLE
+- `variable_id` incluye Sensor + Variable + Frecuencia para ser único
+- Stats de variables agrupan por `Variable`, no por `Sensor`
 
 ### Versión 2.2 (Diciembre 2025) - MEJORAS CRÍTICAS
 
