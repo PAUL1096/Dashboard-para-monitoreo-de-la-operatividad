@@ -46,42 +46,52 @@ class DashboardApp:
     
     def mostrar_header(self):
         """Muestra el encabezado principal del dashboard"""
+        from datetime import datetime
+        now = datetime.now()
         st.markdown(
-            f'<p class="main-header">{config.APP_ICON} Dashboard de Disponibilidad - '
-            f'Red Meteorológica SGR</p>',
+            f'''<div style="display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:0.8rem;">
+                <div>
+                    <div style="font-family:\'IBM Plex Mono\',monospace; font-size:0.72rem; color:#2A5060;
+                                letter-spacing:0.18em; text-transform:uppercase; margin-bottom:0.3rem;">
+                        SENAMHI &mdash; SGR &bull; Sistema de Monitoreo de Operatividad
+                    </div>
+                    <p class="main-header">Red Meteorológica &mdash; Disponibilidad</p>
+                </div>
+                <div style="text-align:right; padding-bottom:0.5rem;">
+                    <div style="font-family:\'IBM Plex Mono\',monospace; font-size:0.72rem;
+                                color:#2A5060; letter-spacing:0.12em; text-transform:uppercase;">
+                        Actualizado
+                    </div>
+                    <div style="font-family:\'IBM Plex Mono\',monospace; font-size:0.92rem;
+                                color:#3A7A8A; letter-spacing:0.06em;">
+                        {now.strftime("%d %b %Y &bull; %H:%M")}
+                    </div>
+                </div>
+            </div>''',
             unsafe_allow_html=True
         )
     
     def cargar_datos_sidebar(self):
         """
-        Maneja la carga de datos desde la barra lateral
-        
+        Carga de datos simplificada:
+        - Auto-carga el reporte más reciente de la carpeta por defecto
+        - Permite subir un archivo manualmente para sobrescribir
+
         Returns:
             Tupla (datos, nombre_archivo) o (None, None) si no hay datos
         """
         st.sidebar.header("📂 Carga de Datos")
-        
-        # Opción 1: Subir archivo
+
         archivo_subido = st.sidebar.file_uploader(
             "Selecciona un archivo Excel",
             type=['xlsx', 'xls'],
             help=messages.TOOLTIP_UPLOAD
         )
-        
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**O selecciona de carpeta local:**")
-        
-        # Opción 2: Desde carpeta
-        ruta_carpeta = st.sidebar.text_input(
-            "Ruta de carpeta de reportes",
-            value=config.DEFAULT_REPORTS_PATH,
-            help=messages.TOOLTIP_FOLDER
-        )
-        
+
         datos = None
         nombre_archivo = None
-        
-        # Intentar cargar desde archivo subido
+
+        # Prioridad 1: archivo subido manualmente
         if archivo_subido is not None:
             try:
                 datos = self.file_handler.cargar_excel(archivo_subido)
@@ -95,60 +105,37 @@ class DashboardApp:
             except Exception as e:
                 st.sidebar.error(f"❌ Error inesperado: {str(e)}")
                 return None, None
-        
-        # Intentar cargar desde carpeta
-        elif os.path.exists(ruta_carpeta):
-            archivos = self.file_handler.listar_archivos_excel(ruta_carpeta)
-            
-            if archivos:
-                archivo_seleccionado = st.sidebar.selectbox(
-                    "Selecciona un reporte",
-                    archivos,
-                    index=0,
-                    help=messages.TOOLTIP_SELECT
-                )
-                
-                ruta_completa = os.path.join(ruta_carpeta, archivo_seleccionado)
-                
-                try:
-                    datos = self.file_handler.cargar_excel(ruta_completa)
-                    nombre_archivo = archivo_seleccionado
-                    
-                    # Mensaje de éxito para el más reciente
-                    if archivo_seleccionado == archivos[0]:
-                        st.sidebar.success("✅ Cargado: **Reporte más reciente**")
-                
-                except Exception as e:
-                    st.sidebar.error(f"❌ Error al cargar: {str(e)}")
-                    return None, None
-            else:
-                st.sidebar.warning(messages.MSG_NO_FILES)
+
+        # Prioridad 2: auto-carga del más reciente en carpeta por defecto
         else:
-            st.sidebar.info(f"{messages.MSG_FOLDER_NOT_EXIST.replace('{ruta_carpeta}', ruta_carpeta)}")
-        
-        # Mostrar información del archivo cargado
+            ruta_carpeta = config.DEFAULT_REPORTS_PATH
+            if os.path.exists(ruta_carpeta):
+                archivos = self.file_handler.listar_archivos_excel(ruta_carpeta)
+                if archivos:
+                    ruta_completa = os.path.join(ruta_carpeta, archivos[0])
+                    try:
+                        datos = self.file_handler.cargar_excel(ruta_completa)
+                        nombre_archivo = archivos[0]
+                    except Exception as e:
+                        st.sidebar.error(f"❌ Error al cargar automáticamente: {str(e)}")
+                        return None, None
+
+        # Información del archivo cargado
         if datos and nombre_archivo:
-            st.sidebar.success(f"✅ Archivo: {nombre_archivo}")
-            
+            st.sidebar.success(f"✅ {nombre_archivo}")
+
             if datos['metadata']['fecha_inicio']:
                 periodo = (
-                    f"{datos['metadata']['fecha_inicio']} al "
+                    f"{datos['metadata']['fecha_inicio']} → "
                     f"{datos['metadata']['fecha_fin']}"
                 )
-                st.sidebar.info(f"📅 Período: {periodo}")
-            
-            # Mostrar estadísticas básicas
+                st.sidebar.caption(f"📅 {periodo}")
+
             with st.sidebar.expander("📊 Estadísticas del archivo"):
                 st.write(f"**Estaciones:** {datos['metadata']['num_estaciones']}")
                 st.write(f"**Sensores:** {datos['metadata']['num_sensores']}")
                 st.write(f"**Variables:** {datos['metadata']['num_variables']}")
                 st.write(f"**Cargado:** {datos['metadata']['fecha_carga']}")
-        
-        # Botón de recarga
-        st.sidebar.markdown("---")
-        if st.sidebar.button("🔄 Recargar datos", help="Limpia la caché y recarga"):
-            st.cache_data.clear()
-            st.rerun()
 
         return datos, nombre_archivo
 
@@ -253,41 +240,50 @@ class DashboardApp:
     def renderizar_dashboard(self, df_estaciones, df_sensores, df_variables):
         """
         Renderiza todas las secciones del dashboard
-        
+
         Args:
             df_estaciones: DataFrame procesado de estaciones
             df_sensores: DataFrame procesado de sensores
             df_variables: DataFrame procesado de variables
         """
-        # Sección de alertas
-        self.ui.mostrar_seccion_alertas(df_estaciones)
-        st.markdown("---")
-        
-        # Métricas globales
+        # Calcular datos compartidos entre tabs
         metricas = self.data_processor.calcular_metricas_globales(df_estaciones)
-        self.ui.mostrar_metricas_globales(metricas)
-        st.markdown("---")
-        
-        # Tabs principales
-        tab1, tab2, tab3, tab4 = st.tabs([
+        df_ocultos = self.data_processor.detectar_problemas_ocultos(
+            df_variables, df_sensores, df_estaciones
+        )
+
+        # Tabs principales (nuevo orden)
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📊 Resumen Ejecutivo",
+            "🚨 Alertas y Prioridades",
+            "🔍 Problemas Ocultos",
             "🏢 Por Estación",
             "📡 Por Sensor",
-            "📈 Por Variable",
-            "📝 Comentarios Técnicos"
+            "📝 Comentarios Técnicos",
         ])
-        
+
         with tab1:
-            self.ui.mostrar_tab_estaciones(df_estaciones)
-        
+            self.ui.mostrar_tab_resumen_ejecutivo(
+                df_estaciones, df_sensores, df_variables, metricas, df_ocultos
+            )
+
         with tab2:
-            self.ui.mostrar_tab_sensores(df_sensores)
-        
+            self.ui.mostrar_metricas_globales(metricas)
+            st.markdown("---")
+            self.ui.mostrar_seccion_alertas(df_estaciones)
+
         with tab3:
-            self.ui.mostrar_tab_variables(df_variables)
-        
+            self.ui.mostrar_tab_problemas_ocultos(df_variables, df_sensores, df_estaciones)
+
         with tab4:
+            self.ui.mostrar_tab_estaciones(df_estaciones)
+
+        with tab5:
+            self.ui.mostrar_tab_sensores(df_sensores)
+
+        with tab6:
             self.ui.mostrar_tab_comentarios(df_estaciones)
-        
+
         # Footer
         self.ui.mostrar_footer()
     

@@ -11,7 +11,7 @@ from typing import Dict, Optional
 
 from config import config, messages, charts
 from modules.chart_builder import (
-    ChartBuilder, 
+    ChartBuilder,
     preparar_stats_tipo_sensor,
     preparar_stats_variables,
     preparar_stats_perdida_datos
@@ -607,6 +607,238 @@ class UIComponents:
             st.info("✅ No hay incidencias registradas con disponibilidad < 80%")
     
     # ========================================================================
+    # TAB NUEVO: RESUMEN EJECUTIVO
+    # ========================================================================
+
+    def mostrar_tab_resumen_ejecutivo(
+        self,
+        df_estaciones: pd.DataFrame,
+        df_sensores: pd.DataFrame,
+        df_variables: pd.DataFrame,
+        metricas: dict,
+        df_ocultos: pd.DataFrame
+    ):
+        """Resumen ejecutivo con KPIs y radar DZ para decisores"""
+
+        # KPIs principales
+        n_ocultos_est = df_ocultos['Estacion'].nunique() if len(df_ocultos) > 0 else 0
+        pct_red = metricas['promedio_red']
+        delta_color = "normal" if pct_red >= 80 else "inverse"
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.metric("Disponibilidad Red", f"{pct_red:.1f}%")
+        with col2:
+            st.metric(
+                "Estaciones Críticas",
+                metricas['estaciones_criticas'],
+                delta=f"de {metricas['total_estaciones']}",
+                delta_color="inverse"
+            )
+        with col3:
+            st.metric("DZs Afectadas", metricas['dz_afectadas'])
+        with col4:
+            st.metric("Alertas ALTA", metricas['estaciones_alta'])
+        with col5:
+            st.metric(
+                "Con Problema Oculto",
+                n_ocultos_est,
+                help="Estaciones con disp. ≥80% pero con sensor/variable crítico"
+            )
+
+        st.markdown("---")
+
+        # Radar DZ + Barras DZ en paralelo
+        col1, col2 = st.columns([3, 2])
+
+        with col1:
+            df_radar = self.data_processor.calcular_metricas_radar_dz(
+                df_estaciones, df_ocultos
+            )
+            fig_radar = self.chart_builder.crear_radar_dz(df_radar)
+            st.plotly_chart(fig_radar, use_container_width=True, key="radar_dz")
+
+        with col2:
+            dz_stats = self.data_processor.agrupar_por_dz(df_estaciones)
+            fig_dz = self.chart_builder.crear_barras_disponibilidad_dz(dz_stats)
+            st.plotly_chart(fig_dz, use_container_width=True, key="barras_dz_resumen")
+
+        # Top 5 situaciones urgentes
+        st.subheader("🔴 Top 5 Situaciones Más Urgentes")
+        df_alta = df_estaciones[df_estaciones['prioridad'] == 'ALTA'].nsmallest(5, 'disponibilidad')
+        if len(df_alta) > 0:
+            cols_show = [c for c in ['DZ', 'Estacion', 'disponibilidad', 'razon_prioridad', 'estado_inci'] if c in df_alta.columns]
+            st.dataframe(
+                df_alta[cols_show],
+                use_container_width=True,
+                height=min(230, 40 + len(df_alta) * 38),
+                column_config={
+                    "disponibilidad": st.column_config.NumberColumn("Disp. (%)", format="%.1f%%")
+                }
+            )
+        else:
+            st.success("✅ No hay estaciones de Prioridad Alta")
+
+    # ========================================================================
+    # TAB NUEVO: PROBLEMAS OCULTOS
+    # ========================================================================
+
+    def mostrar_tab_problemas_ocultos(
+        self,
+        df_variables: pd.DataFrame,
+        df_sensores: pd.DataFrame,
+        df_estaciones: pd.DataFrame
+    ):
+        """Tab de detección de sensores/variables críticos en estaciones aparentemente OK"""
+
+        df_ocultos = self.data_processor.detectar_problemas_ocultos(
+            df_variables, df_sensores, df_estaciones
+        )
+
+        n_estaciones = df_ocultos['Estacion'].nunique() if len(df_ocultos) > 0 else 0
+        n_sensores_ocultos = len(df_ocultos[df_ocultos['nivel'] == 'Sensor']) if len(df_ocultos) > 0 else 0
+        n_variables_ocultas = len(df_ocultos[df_ocultos['nivel'] == 'Variable']) if len(df_ocultos) > 0 else 0
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric(
+                "Estaciones con Problema Oculto",
+                n_estaciones,
+                help="Disp. global ≥80% pero con sensor o variable <80%"
+            )
+        with col2:
+            st.metric("Sensores Críticos Ocultos", n_sensores_ocultos)
+        with col3:
+            st.metric("Variables Críticas Ocultas", n_variables_ocultas)
+
+        if len(df_ocultos) == 0:
+            st.success("✅ No se detectaron problemas ocultos en estaciones operativas")
+            return
+
+        st.markdown("---")
+
+        # Filtro por DZ
+        dzs = ['Todas'] + sorted(df_ocultos['DZ'].unique().tolist())
+        dz_sel = st.selectbox("Filtrar por DZ", dzs, key="dz_ocultos")
+        df_view = df_ocultos if dz_sel == 'Todas' else df_ocultos[df_ocultos['DZ'] == dz_sel]
+
+        # Gráfico comparativo
+        fig_ocultos = self.chart_builder.crear_grafico_problemas_ocultos(df_view)
+        st.plotly_chart(fig_ocultos, use_container_width=True, key="graf_ocultos")
+
+        # Heatmap
+        st.subheader("🗺️ Heatmap: Disponibilidad por Estación × Variable")
+        # Filtrar df_variables a las estaciones con problema oculto
+        est_ocultas = df_view['Estacion'].unique()
+        df_var_filtrado = df_variables[df_variables['Estacion'].isin(est_ocultas)]
+        if len(df_var_filtrado) > 0:
+            fig_heatmap = self.chart_builder.crear_heatmap_variables_por_estacion(
+                df_var_filtrado, top_n=40
+            )
+            st.plotly_chart(fig_heatmap, use_container_width=True, key="heatmap_ocultos")
+
+        # Tabla detallada
+        st.subheader("📋 Detalle de Problemas Ocultos")
+        st.info(
+            "🟥 **Brecha significativa** (≥30 pts): la estación parece OK pero el sensor/variable "
+            "está muy por debajo. 🟧 Brecha menor pero igual requiere atención."
+        )
+
+        # Estilo de tabla
+        def highlight_significativa(row):
+            if row.get('es_significativa', False):
+                return ['background-color: rgba(239,68,68,0.12)'] * len(row)
+            return ['background-color: rgba(245,158,11,0.08)'] * len(row)
+
+        cols_tabla = [c for c in [
+            'DZ', 'Estacion', 'disponibilidad_estacion',
+            'nivel', 'nombre', 'disponibilidad_item', 'brecha', 'es_significativa'
+        ] if c in df_view.columns]
+
+        st.dataframe(
+            df_view[cols_tabla].sort_values('brecha', ascending=False),
+            use_container_width=True,
+            height=min(500, 50 + len(df_view) * 35),
+            column_config={
+                "disponibilidad_estacion": st.column_config.NumberColumn(
+                    "Disp. Estación (%)", format="%.1f%%"
+                ),
+                "disponibilidad_item": st.column_config.NumberColumn(
+                    "Disp. Sensor/Var (%)", format="%.1f%%"
+                ),
+                "brecha": st.column_config.NumberColumn(
+                    "Brecha (pts)", format="%.1f"
+                ),
+                "es_significativa": st.column_config.CheckboxColumn(
+                    "Significativa (≥30pts)"
+                )
+            }
+        )
+
+        csv = self.file_handler.exportar_csv(df_view[cols_tabla])
+        st.download_button(
+            "📥 Descargar Problemas Ocultos",
+            csv,
+            self.file_handler.crear_nombre_descarga('problemas_ocultos'),
+            'text/csv',
+            key="dl_ocultos"
+        )
+
+        # ---- Sección 2: Anomalías de Configuración (disponibilidad > 100%) ----
+        st.markdown("---")
+        st.subheader("⚙️ Anomalías de Configuración — Disponibilidad > 100%")
+        st.caption(
+            "Sensores o variables con datos recibidos mayores a los esperados. "
+            "Indica un error en la configuración de frecuencia de medición o en los datos esperados del PDF."
+        )
+
+        df_anomalias = self.data_processor.detectar_anomalias_configuracion(
+            df_variables, df_sensores
+        )
+
+        if len(df_anomalias) == 0:
+            st.success("✅ No se detectaron anomalías de configuración (ningún item >100%)")
+        else:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                n_est_anom = df_anomalias['Estacion'].nunique()
+                st.metric("Estaciones afectadas", n_est_anom)
+            with col2:
+                n_sens_anom = len(df_anomalias[df_anomalias['nivel'] == 'Sensor'])
+                st.metric("Sensores >100%", n_sens_anom)
+            with col3:
+                n_var_anom = len(df_anomalias[df_anomalias['nivel'] == 'Variable'])
+                st.metric("Variables >100%", n_var_anom)
+
+            # Filtro por DZ
+            dzs_anom = ['Todas'] + sorted(df_anomalias['DZ'].unique().tolist())
+            dz_anom = st.selectbox("Filtrar anomalías por DZ", dzs_anom, key="dz_anomalias")
+            df_anom_view = df_anomalias if dz_anom == 'Todas' else df_anomalias[df_anomalias['DZ'] == dz_anom]
+
+            st.dataframe(
+                df_anom_view.sort_values('exceso', ascending=False),
+                use_container_width=True,
+                height=min(450, 50 + len(df_anom_view) * 35),
+                column_config={
+                    "disponibilidad_item": st.column_config.NumberColumn(
+                        "Disponibilidad (%)", format="%.1f%%"
+                    ),
+                    "exceso": st.column_config.NumberColumn(
+                        "Exceso sobre 100% (pts)", format="%.1f"
+                    )
+                }
+            )
+
+            csv_anom = self.file_handler.exportar_csv(df_anom_view)
+            st.download_button(
+                "📥 Descargar Anomalías de Configuración",
+                csv_anom,
+                self.file_handler.crear_nombre_descarga('anomalias_configuracion'),
+                'text/csv',
+                key="dl_anomalias"
+            )
+
+    # ========================================================================
     # UTILIDADES DE UI
     # ========================================================================
     
@@ -636,8 +868,13 @@ class UIComponents:
         st.markdown("---")
         st.markdown(f"""
         <div class="footer">
-            Dashboard de Monitoreo Meteorológico SGR | 
-            Última actualización: {datetime.now().strftime(config.DATETIME_FORMAT)} | 
-            Desarrollado con Streamlit y Python | Versión {config.VERSION}
+            <span style="color:#1A3040; letter-spacing:0.2em;">
+                &#9632;&nbsp;&nbsp;
+                SENAMHI &mdash; SGR &nbsp;&bull;&nbsp;
+                Dashboard v{config.VERSION} &nbsp;&bull;&nbsp;
+                {datetime.now().strftime(config.DATETIME_FORMAT)} &nbsp;&bull;&nbsp;
+                Streamlit + Python
+                &nbsp;&nbsp;&#9632;
+            </span>
         </div>
         """, unsafe_allow_html=True)
